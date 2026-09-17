@@ -9,6 +9,6 @@
 //     （Authentication → Sign In/Providers → Anonymous sign-ins）。
 //   · 留空则：PvE 进入「本机离线模式」（榜单存浏览器本地），PvP 不可用。
 window.SUPABASE_CONFIG = {
-  url: 'https://dnfugrjnzyfqngrjuu.supabase.co',
+  url: 'https://dnfugrjnnzyfqngrjuuv.supabase.co',
   anonKey: 'sb_publishable_IaIPo8oDPf5UrpiT1Y2R3Q_0ZRCH9ra'
 };
