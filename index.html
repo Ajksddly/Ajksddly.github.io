@@ -1436,6 +1436,7 @@ function pvpGenCode(){
 }
 function pvpSetStatus(t, cls){ if(pvpStatus){ pvpStatus.textContent=t; pvpStatus.className='pvp-status'+(cls?(' '+cls):''); } }
 
+function pvpMsg(p){ return (p && p.type === 'broadcast' && p.payload !== undefined) ? p.payload : p; }
 function pvpSend(msg){
   if(!pvp.channel || !pvp.joined) return;
   try{ pvp.channel.send({type:'broadcast', event:msg.event, payload:msg.payload}).catch(()=>{}); }catch(e){}
@@ -1559,16 +1560,16 @@ async function pvpSetupChannel(){
   await ensureAuth();
   const ch = sb.channel('tankpvp:' + pvp.code, { config:{ broadcast:{ self:true } } });
   pvp.channel = ch;
-  ch.on('broadcast', {event:'hello'}, onHello);
-  ch.on('broadcast', {event:'sync'}, onSync);
-  ch.on('broadcast', {event:'ready'}, onReady);
-  ch.on('broadcast', {event:'state'}, onState);
-  ch.on('broadcast', {event:'fire'}, onFire);
-  ch.on('broadcast', {event:'hit'}, onHit);
-  ch.on('broadcast', {event:'dead'}, onDead);
-  ch.on('broadcast', {event:'round'}, onRound);
-  ch.on('broadcast', {event:'full'}, onFull);
-  ch.on('broadcast', {event:'leave'}, onLeave);
+  ch.on('broadcast', {event:'hello'}, (p)=>onHello(pvpMsg(p)));
+  ch.on('broadcast', {event:'sync'}, (p)=>onSync(pvpMsg(p)));
+  ch.on('broadcast', {event:'ready'}, (p)=>onReady(pvpMsg(p)));
+  ch.on('broadcast', {event:'state'}, (p)=>onState(pvpMsg(p)));
+  ch.on('broadcast', {event:'fire'}, (p)=>onFire(pvpMsg(p)));
+  ch.on('broadcast', {event:'hit'}, (p)=>onHit(pvpMsg(p)));
+  ch.on('broadcast', {event:'dead'}, (p)=>onDead(pvpMsg(p)));
+  ch.on('broadcast', {event:'round'}, (p)=>onRound(pvpMsg(p)));
+  ch.on('broadcast', {event:'full'}, (p)=>onFull(pvpMsg(p)));
+  ch.on('broadcast', {event:'leave'}, (p)=>onLeave(pvpMsg(p)));
   ch.subscribe((status)=>{
     if(status==='SUBSCRIBED'){
       pvp.joined=true;
