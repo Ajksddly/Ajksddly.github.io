@@ -155,31 +155,32 @@
   html,body{overscroll-behavior:none}
   #app{user-select:none;-webkit-user-select:none}
   .joy{
-    position:fixed;width:118px;height:118px;border-radius:50%;
-    border:2px solid rgba(255,255,255,.24);background:rgba(255,255,255,.07);
+    position:fixed;width:140px;height:140px;border-radius:50%;
+    border:2px solid rgba(255,255,255,.26);background:rgba(255,255,255,.08);
     pointer-events:none;display:none;z-index:30;
+    box-shadow:0 4px 18px rgba(0,0,0,.35);
   }
   .joy.show{display:block}
   .joy-knob{
-    position:absolute;left:50%;top:50%;width:52px;height:52px;margin:-26px 0 0 -26px;
-    border-radius:50%;background:rgba(255,255,255,.34);
+    position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px 0 0 -29px;
+    border-radius:50%;background:rgba(255,255,255,.4);
   }
-  #joy-move{left:22px;bottom:22px}
+  #joy-move{left:26px;bottom:30px}
   /* 移动端开火按钮（子弹图标） */
   #fire-btn{
-    position:fixed; right:20px; bottom:96px; z-index:40;
-    width:66px; height:66px; border-radius:50%;
+    position:fixed; right:26px; bottom:64px; z-index:40;
+    width:80px; height:80px; border-radius:50%;
     background:rgba(17,21,31,.72);
-    border:2px solid rgba(255,255,255,.22);
+    border:2px solid rgba(255,255,255,.26);
     color:#e6edf3;
     display:none; align-items:center; justify-content:center;
-    box-shadow:0 6px 18px rgba(0,0,0,.4);
+    box-shadow:0 6px 22px rgba(0,0,0,.45);
     touch-action:none; -webkit-tap-highlight-color:transparent; user-select:none; cursor:pointer;
-    -webkit-backdrop-filter:blur(2px); backdrop-filter:blur(2px);
+    -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px);
   }
   #fire-btn.show{display:flex}
-  #fire-btn:active{transform:scale(.9); border-color:rgba(79,140,255,.85); color:#cfe2ff}
-  #fire-btn svg{width:32px; height:32px; display:block}
+  #fire-btn:active{transform:scale(.92); border-color:rgba(79,140,255,.85); color:#cfe2ff}
+  #fire-btn svg{width:38px; height:38px; display:block}
   #board-toggle{display:none}
   #board-backdrop{position:fixed; inset:0; z-index:54; background:rgba(0,0,0,.5);
     opacity:0; pointer-events:none; transition:opacity .22s ease}
@@ -1203,8 +1204,8 @@ window.addEventListener('keydown', e=>{
   const k = e.key.toLowerCase();
   keys[k] = true;
   if(k==='p' && mode!=='pvp'){
-    if(phase==='playing'){ phase='paused'; showBanner('已暂停'); }
-    else if(phase==='paused'){ phase='playing'; }
+    if(phase==='playing'){ phase='paused'; showBanner('已暂停'); setPauseIcon(true); }
+    else if(phase==='paused'){ phase='playing'; setPauseIcon(false); }
   }
   if(k==='escape' && mode==='pvp'){ pvpExit(); }
   if(k==='m') toggleMute();
@@ -1215,6 +1216,10 @@ window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
 function toggleMute(){
   muted = !muted;
   document.getElementById('mute').textContent = muted ? '🔇' : '🔊';
+}
+function setPauseIcon(paused){
+  const btn = document.getElementById('pause');
+  if(btn) btn.textContent = paused ? '▶' : '⏸';
 }
 
 document.getElementById('start-btn').addEventListener('click', startGame);
@@ -1253,8 +1258,8 @@ document.getElementById('share-btn').addEventListener('click', async ()=>{
 document.getElementById('mute').addEventListener('click', toggleMute);
 document.getElementById('pause').addEventListener('click', ()=>{
   if(mode === 'pvp'){ pvpExit(); return; }
-  if(phase === 'playing'){ phase = 'paused'; showBanner('已暂停'); }
-  else if(phase === 'paused'){ phase = 'playing'; }
+  if(phase === 'playing'){ phase = 'paused'; showBanner('已暂停'); setPauseIcon(true); }
+  else if(phase === 'paused'){ phase = 'playing'; setPauseIcon(false); }
 });
 const vibBtn = document.getElementById('vibrate');
 if(!('vibrate' in navigator)){
@@ -1833,25 +1838,34 @@ function drawPowerupsPvp(){
     ctx.restore();
   }
 }
+function pvpDrawName(t, name, color){
+  if(!t || !t.alive) return;
+  ctx.save();
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold 13px "Microsoft YaHei",sans-serif';
+  const y = t.y - t.size/2 - 22;
+  const w = ctx.measureText(name).width + 16;
+  ctx.fillStyle='rgba(9,12,18,0.62)';
+  roundRect(t.x - w/2, y - 10, w, 20, 6); ctx.fill();
+  ctx.fillStyle=color;
+  ctx.fillText(name, t.x, y + 1);
+  ctx.restore();
+}
 function pvpDrawHud(){
   ctx.textAlign='center'; ctx.textBaseline='middle';
+  // 顶部记分板
   ctx.fillStyle='rgba(9,12,18,0.6)';
   ctx.fillRect(0,0,W,34);
   ctx.font='bold 15px "Microsoft YaHei",sans-serif';
-  const meName=(currentName||'我').slice(0,6);
-  const oppName=(pvp.oppName||'对手').slice(0,6);
+  const meName=(currentName||'我').slice(0,8);
+  const oppName=(pvp.oppName||'对手').slice(0,8);
   ctx.fillStyle='#4ade80'; ctx.fillText(meName,130,18);
   ctx.fillStyle='#e6edf3'; ctx.fillText(pvp.score[0]+' : '+pvp.score[1],W/2,18);
   ctx.fillStyle='#f87171'; ctx.fillText(oppName,W-130,18);
-  if(pvp.me){
-    const hw=110;
-    ctx.fillStyle='rgba(9,12,18,0.6)'; ctx.fillRect(14,H-32,hw+12,22);
-    ctx.fillStyle='#334155'; ctx.fillRect(20,H-24,hw,8);
-    ctx.fillStyle='#4ade80'; ctx.fillRect(20,H-24,hw*(pvp.me.hp/PVP_MAXHP),8);
-    ctx.fillStyle='#e6edf3'; ctx.font='bold 12px "Microsoft YaHei",sans-serif'; ctx.textAlign='left';
-    ctx.fillText('生命 '+Math.max(0,pvp.me.hp)+'/'+PVP_MAXHP, 20+hw+6, H-20);
-  }
-  ctx.textAlign='center';
+  // 双方头顶昵称（互显玩家昵称）
+  pvpDrawName(pvp.me, meName, '#4ade80');
+  pvpDrawName(pvp.opp, oppName, '#f87171');
+  // 中央状态
   if(pvp.state==='countdown'){
     const n=Math.ceil(pvp.countdown);
     ctx.font='bold 72px "Microsoft YaHei",sans-serif';
