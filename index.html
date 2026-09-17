@@ -636,6 +636,7 @@ function nearestEnemy(){
 
 /* ================= 更新 ================= */
 function update(dt){
+  banner.timer -= dt;   // 暂停时横幅也要继续计时，否则“已暂停”不显示
   if(phase !== 'playing') return;
   updatePlayer(dt);
   updateEnemies(dt);
@@ -652,7 +653,6 @@ function update(dt){
     player.multi = Math.max(0, player.multi - dt);
     player.invincible = Math.max(0, player.invincible - dt);
   }
-  banner.timer -= dt;
   shake = Math.max(0, shake - dt*2.5);
   for(let i=floats.length-1;i>=0;i--){ floats[i].life -= dt; if(floats[i].life<=0) floats.splice(i,1); }
 }
@@ -1000,7 +1000,7 @@ function drawFloats(){
 
 function drawBanner(){
   if(banner.timer <= 0) return;
-  const a = Math.min(1, banner.timer, (2.0 - banner.timer)*2);
+  const a = Math.min(1, banner.timer);
   ctx.globalAlpha = Math.max(0, a);
   ctx.fillStyle = 'rgba(9,12,18,0.6)';
   ctx.fillRect(0, H/2 - 46, W, 60);
@@ -1205,7 +1205,7 @@ window.addEventListener('keydown', e=>{
   keys[k] = true;
   if(k==='p' && mode!=='pvp'){
     if(phase==='playing'){ phase='paused'; showBanner('已暂停'); setPauseIcon(true); }
-    else if(phase==='paused'){ phase='playing'; setPauseIcon(false); }
+    else if(phase==='paused'){ phase='playing'; setPauseIcon(false); banner.timer = 0; }
   }
   if(k==='escape' && mode==='pvp'){ pvpExit(); }
   if(k==='m') toggleMute();
@@ -1259,7 +1259,7 @@ document.getElementById('mute').addEventListener('click', toggleMute);
 document.getElementById('pause').addEventListener('click', ()=>{
   if(mode === 'pvp'){ pvpExit(); return; }
   if(phase === 'playing'){ phase = 'paused'; showBanner('已暂停'); setPauseIcon(true); }
-  else if(phase === 'paused'){ phase = 'playing'; setPauseIcon(false); }
+  else if(phase === 'paused'){ phase = 'playing'; setPauseIcon(false); banner.timer = 0; }
 });
 const vibBtn = document.getElementById('vibrate');
 if(!('vibrate' in navigator)){
