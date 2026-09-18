@@ -1604,7 +1604,7 @@ function pvpBroadcastState(){
   pvpSend({event:'state', payload:{ id:myUid, x:pvp.me.x, y:pvp.me.y, angle:pvp.me.angle, hp:pvp.me.hp }});
 }
 function pvpBroadcastStateThrottled(){
-  if(performance.now() - pvp.lastStateSend < 50) return;
+  if(performance.now() - pvp.lastStateSend < 100) return;
   pvp.lastStateSend = performance.now();
   pvpBroadcastState();
 }
@@ -1778,7 +1778,7 @@ async function pvpEnsureOnline(){
 }
 async function pvpSetupChannel(){
   await ensureAuth();
-  const ch = sb.channel('tankpvp:' + pvp.code, { config:{ broadcast:{ self:true } } });
+  const ch = sb.channel('tankpvp:' + pvp.code, { config:{ broadcast:{ self:false } } });
   pvp.channel = ch;
   ch.on('broadcast', {event:'hello'}, (p)=>onHello(pvpMsg(p)));
   ch.on('broadcast', {event:'roster'}, (p)=>onRoster(pvpMsg(p)));
@@ -2053,6 +2053,7 @@ function pvpUpdateBullets(dt){
           if(pvp.me.hp<=0){
             pvp.me.alive=false;
             pvpSend({event:'dead', payload:{ id:myUid, killer: pvp.lastHitter }});
+            if(pvp.host && pvp.state==='play') pvpCheckRoundEnd();
           }
         }
       }
@@ -2077,6 +2078,7 @@ function pvpSpawnPowerup(){
   const type = types[Math.floor(Math.random()*types.length)];
   const pos = pvpRandomPowerupPos();
   const id = 'pu-' + myUid + '-' + (pvp.seq++);
+  pvp.powerups.push({ id, x:pos.x, y:pos.y, type, t:0, life:12 });
   pvpSend({ event:'powerup', payload:{ id, x:pos.x, y:pos.y, type } });
 }
 function onPowerup(p){
@@ -2125,7 +2127,7 @@ function pvpUpdate(dt){
   if(pvp.code && pvp.joined){
     pvp.pingTimer -= dt;
     if(pvp.pingTimer <= 0){
-      pvp.pingTimer = 2.5;
+      pvp.pingTimer = 5;
       pvpSend({event:'ping', payload:{ id:myUid }});
     }
   }
