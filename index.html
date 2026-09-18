@@ -244,7 +244,7 @@
   .pvp-mode-btn:hover{border-color:var(--accent)}
   .pvp-mode-btn.active{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#0b0e14;border-color:transparent}
 </style>
-<script src="config.js"></script>
+<script>window.SUPABASE_CONFIG = { url: 'https://dnfugrjnnzyfqngrjuuv.supabase.co', anonKey: 'sb_publishable_IaIPo8oDPf5UrpiT1Y2R3Q_0ZRCH9ra' };</script>
 <script src="supabase.min.js"></script>
 </head>
 <body>
@@ -273,7 +273,7 @@
     <div class="overlay" id="overlay-start">
       <div class="card">
         <div class="title">钢铁洪流</div>
-        <div class="subtitle">TANK · PvE 闯关 &amp; PvP 双人对战</div>
+        <div class="subtitle">TANK · PvE 闯关 &amp; PvP 双人对战 <span id="ver-tag" style="font-size:11px;color:#22d3ee">v3.1</span></div>
         <div class="field">
           <label>你的昵称（用于排行榜 / 对战）</label>
           <input id="name-input" maxlength="12" placeholder="输入昵称…">
@@ -1781,9 +1781,15 @@ function pvpSyncUI(){
 
 /* ---- 房间生命周期 ---- */
 async function pvpEnsureOnline(){
-  if(!sb || !SB_URL){ pvpSetStatus('PvP 需要先配置 Supabase（config.js 填 url 与 anonKey 后部署上线）','bad'); return false; }
-  try{ await ensureAuth(); return true; }
-  catch(e){ pvpSetStatus('连接服务器失败，请检查网络后重试','bad'); return false; }
+  if(!sb || !SB_URL){ pvpSetStatus('PvP 需要先配置 Supabase','bad'); return false; }
+  pvpSetStatus('正在连接服务器…');
+  try{
+    await Promise.race([ensureAuth(), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')), 10000))]);
+    return true;
+  }catch(e){
+    pvpSetStatus('连接服务器失败，请检查网络后重试','bad');
+    return false;
+  }
 }
 async function pvpSetupChannel(){
   await ensureAuth();
