@@ -1505,7 +1505,7 @@ function pvpRebuildRoster(roster){
   const arr = [];
   for(const r of pvp.roster){
     const ex = pvp.players && pvp.players[r.slot];
-    const t = ex || { cooldown:0, muzzle:0, shield:0, rapid:0, invincible:0 };
+    const t = ex || { cooldown:0, muzzle:0, shield:0, rapid:0, invincible:0, speedBoost:0, multi:0 };
     const color = PVP_COLORS[r.slot % PVP_COLORS.length];
     Object.assign(t, {
       id:r.id, name:r.name, slot:r.slot, team:(r.team===undefined?0:r.team),
@@ -1529,7 +1529,7 @@ function pvpResetRound(){
     const ang = Math.atan2(cy - sp[1], cx - sp[0]);
     Object.assign(t, {
       x:sp[0], y:sp[1], tx:sp[0], ty:sp[1], angle:ang, tAngle:ang,
-      hp:PVP_MAXHP, maxhp:PVP_MAXHP, alive:true, cooldown:0, muzzle:0, shield:0, rapid:0, invincible:0
+      hp:PVP_MAXHP, maxhp:PVP_MAXHP, alive:true, cooldown:0, muzzle:0, shield:0, rapid:0, invincible:0, speedBoost:0, multi:0
     });
   }
 }
@@ -1716,6 +1716,8 @@ async function pvpSetupChannel(){
   ch.on('broadcast', {event:'round'}, (p)=>onRound(pvpMsg(p)));
   ch.on('broadcast', {event:'full'}, (p)=>onFull(pvpMsg(p)));
   ch.on('broadcast', {event:'leave'}, (p)=>onLeave(pvpMsg(p)));
+  ch.on('broadcast', {event:'powerup'}, (p)=>onPowerup(pvpMsg(p)));
+  ch.on('broadcast', {event:'take'}, (p)=>onTake(pvpMsg(p)));
   ch.subscribe((status)=>{
     if(status==='SUBSCRIBED'){
       pvp.joined=true;
@@ -1853,9 +1855,14 @@ function pvpFire(){
   const cd = me.rapid>0 ? 0.13 : 0.3;
   if(me.cooldown>0) return;
   me.cooldown=cd;
-  const id = myUid + '-' + (pvp.seq++);
-  pvp.bullets.push({ id, x:me.x, y:me.y, angle:me.angle, speed:PVP_BULLET_SPEED, owner:myUid, size:4, life:2.5 });
-  pvpSend({event:'fire', payload:{ id, owner:myUid, x:me.x, y:me.y, angle:me.angle }});
+  const n = me.multi>0 ? 3 : 1;
+  const spread = 0.16;
+  for(let i=0;i<n;i++){
+    const a = me.angle + (i-(n-1)/2)*spread;
+    const id = myUid + '-' + (pvp.seq++);
+    pvp.bullets.push({ id, x:me.x, y:me.y, angle:a, speed:PVP_BULLET_SPEED, owner:myUid, size:4, life:2.5 });
+    pvpSend({event:'fire', payload:{ id, owner:myUid, x:me.x, y:me.y, angle:a }});
+  }
   me.muzzle=0.06;
   sfx.shoot(); haptic(10);
 }
@@ -1869,7 +1876,7 @@ function pvpUpdatePlayerPvp(dt){
   if(joyMove.active && Math.hypot(joyMove.dx, joyMove.dy) > 8){ dx += joyMove.dx / JOY_R; dy += joyMove.dy / JOY_R; }
   if(dx||dy){
     const m = Math.hypot(dx,dy);
-    pvpMoveTank(me, dx/m*me.speed*dt, dy/m*me.speed*dt);
+    pvpMoveTank(me, dx/m*me.speed*(me.speedBoost>0?1.6:1)*dt, dy/m*me.speed*(me.speedBoost>0?1.6:1)*dt);
   }
   const target = pvpNearestEnemy();
   const aimMouse = (performance.now() - lastMouseMove) <= 2000;
@@ -1938,27 +1945,54 @@ function pvpUpdateBullets(dt){
     if(dead) pvp.bullets.splice(i,1);
   }
 }
+function pvpRandomPowerupPos(){
+  for(let tries=0; tries<30; tries++){
+    const c = 2 + Math.floor(Math.random()*(COLS-4));
+    const r = 2 + Math.floor(Math.random()*(ROWS-4));
+    const t = grid[r] && grid[r][c];
+    if(t === EMPTY || t === GRASS || t === undefined){
+      return { x: c*TILE + TILE/2, y: r*TILE + TILE/2 };
+    }
+  }
+  return { x: W/2, y: H/2 };
+}
+function pvpSpawnPowerup(){
+  if(pvp.powerups.length >= 4) return;
+  const types = ['heal','shield','rapid','speed','multi'];
+  const type = types[Math.floor(Math.random()*types.length)];
+  const pos = pvpRandomPowerupPos();
+  const id = 'pu-' + myUid + '-' + (pvp.seq++);
+  pvpSend({ event:'powerup', payload:{ id, x:pos.x, y:pos.y, type } });
+}
+function onPowerup(p){
+  if(pvp.powerups.some(x => x.id === p.id)) return;
+  pvp.powerups.push({ id:p.id, x:p.x, y:p.y, type:p.type, t:0, life:12 });
+}
+function onTake(p){
+  const i = pvp.powerups.findIndex(x => x.id === p.id);
+  if(i >= 0) pvp.powerups.splice(i, 1);
+}
 function pvpUpdatePowerups(dt){
-  pvp.powerupTimer -= dt;
-  if(pvp.powerupTimer<=0){
-    pvp.powerupTimer = 7;
-    if(pvp.powerups.length < 3){
-      const type = ['heal','shield','rapid'][Math.floor(Math.random()*3)];
-      const pts = [[W/2,H/2],[W/2-TILE*2,H/2],[W/2+TILE*2,H/2]];
-      const p = pts[Math.floor(Math.random()*pts.length)];
-      pvp.powerups.push({ x:p[0], y:p[1], type, t:0, life:9 });
+  if(pvp.host){
+    pvp.powerupTimer -= dt;
+    if(pvp.powerupTimer <= 0){
+      pvp.powerupTimer = 6;
+      pvpSpawnPowerup();
     }
   }
   for(let i=pvp.powerups.length-1;i>=0;i--){
     const p = pvp.powerups[i];
     p.t += dt; p.life -= dt;
     if(p.life<=0){ pvp.powerups.splice(i,1); continue; }
-    if(pvp.me && pvp.me.alive && dist2(p.x,p.y,pvp.me.x,pvp.me.y) < Math.pow(pvp.me.size/2 + 14, 2)){
-      const t=p.type; sfx.power();
+    if(pvp.me && pvp.me.alive && dist2(p.x,p.y,pvp.me.x,pvp.me.y) < Math.pow(pvp.me.size/2 + 16, 2)){
+      const t=p.type; sfx.power(); haptic([15,20,15]);
       if(t==='heal'){ pvp.me.hp = Math.min(pvp.me.hp+1, PVP_MAXHP); floatText('+生命',p.x,p.y,'#34d399'); }
-      if(t==='shield'){ pvp.me.shield = 5; floatText('护盾',p.x,p.y,'#38bdf8'); }
-      if(t==='rapid'){ pvp.me.rapid = 6; floatText('速射',p.x,p.y,'#fbbf24'); }
+      if(t==='shield'){ pvp.me.shield = 6; floatText('护盾',p.x,p.y,'#38bdf8'); }
+      if(t==='rapid'){ pvp.me.rapid = 8; floatText('速射',p.x,p.y,'#fbbf24'); }
+      if(t==='speed'){ pvp.me.speedBoost = 8; floatText('加速',p.x,p.y,'#a3e635'); }
+      if(t==='multi'){ pvp.me.multi = 8; floatText('多弹',p.x,p.y,'#f472b6'); }
       pvp.powerups.splice(i,1);
+      pvpSend({ event:'take', payload:{ id:p.id } });
       pvpBroadcastState();
     }
   }
@@ -1971,6 +2005,8 @@ function pvpUpdate(dt){
     pvp.me.shield=Math.max(0,pvp.me.shield-dt);
     pvp.me.rapid=Math.max(0,pvp.me.rapid-dt);
     pvp.me.invincible=Math.max(0,pvp.me.invincible-dt);
+    pvp.me.speedBoost=Math.max(0,pvp.me.speedBoost-dt);
+    pvp.me.multi=Math.max(0,pvp.me.multi-dt);
   }
   if(pvp.state==='countdown'){
     pvp.countdown -= dt;
@@ -2120,6 +2156,8 @@ function pvpUpdateHUD(){
   if(pvp.me){
     if(pvp.me.shield>0) html += `<span class="chip" style="background:#38bdf8">盾 ${Math.ceil(pvp.me.shield)}s</span>`;
     if(pvp.me.rapid>0) html += `<span class="chip" style="background:#fbbf24">速射 ${Math.ceil(pvp.me.rapid)}s</span>`;
+    if(pvp.me.speedBoost>0) html += `<span class="chip" style="background:#a3e635">加速 ${Math.ceil(pvp.me.speedBoost)}s</span>`;
+    if(pvp.me.multi>0) html += `<span class="chip" style="background:#f472b6">多弹 ${Math.ceil(pvp.me.multi)}s</span>`;
   }
   powBox.innerHTML = html;
 }
