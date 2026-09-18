@@ -7,6 +7,15 @@
 <meta property="og:title" content="钢铁洪流 · 坦克大战 PvE & PvP">
 <meta property="og:description" content="在线坦克大战：PvE 闯关共享击杀榜 + PvP 双人实时对战，一条网址畅玩！">
 <meta property="og:type" content="website">
+<meta property="og:image" content="https://ajksddly.github.io/cover.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:type" content="image/png">
+<meta property="og:site_name" content="钢铁洪流 · 坦克大战">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="钢铁洪流 · 坦克大战 PvE & PvP">
+<meta name="twitter:description" content="在线坦克大战：PvE 闯关共享击杀榜 + PvP 双人实时对战，一条网址畅玩！">
+<meta name="twitter:image" content="https://ajksddly.github.io/cover.png">
 <meta name="author" content="Ajksddly">
 <meta name="copyright" content="© 2026 Ajksddly · 钢铁洪流·坦克大战">
 <style>
@@ -275,6 +284,7 @@
           <b>PvP</b>：创建/加入房间码，双人实时对战，先赢 <b>5</b> 局 · <b>Esc</b>退出<br>
           <b>触屏</b>：左半屏拖动移动 · 按住右下角<b>子弹</b>按钮射击（自动瞄准）
         </div>
+        <button class="btn ghost" id="home-share-btn" style="width:auto;margin:12px auto 0;padding:8px 18px;font-size:13px">📤 分享给好友</button>
       </div>
     </div>
 
@@ -1299,6 +1309,30 @@ document.getElementById('share-btn').addEventListener('click', async ()=>{
   }
   setTimeout(()=>{ btn.textContent = '复制分享链接'; }, 1600);
 });
+function shareGame(){
+  if(typeof location !== 'undefined' && location.protocol === 'file:'){
+    alert('当前是本地文件打开，请部署到线上后分享。');
+    return;
+  }
+  const url = location.href;
+  if(navigator.share){
+    navigator.share({
+      title: '钢铁洪流 · 坦克大战',
+      text: '在线坦克大战：PvE 闯关 + PvP 多人对战，来一局！',
+      url: url
+    }).catch(()=>{});
+  } else {
+    const btn = document.getElementById('home-share-btn');
+    try{
+      navigator.clipboard.writeText(url).then(()=>{
+        if(btn){ btn.textContent = '已复制链接 ✓'; setTimeout(()=>{ btn.textContent = '📤 分享给好友'; }, 1600); }
+      }).catch(()=>{ window.prompt('复制下面的链接分享给好友：', url); });
+    }catch(e){
+      window.prompt('复制下面的链接分享给好友：', url);
+    }
+  }
+}
+document.getElementById('home-share-btn').addEventListener('click', shareGame);
 document.getElementById('mute').addEventListener('click', toggleMute);
 document.getElementById('pause').addEventListener('click', ()=>{
   if(mode === 'pvp'){ pvpExit(); return; }
