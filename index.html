@@ -409,7 +409,7 @@ let lastTime = 0, lastMouseMove = 0, mouse = { x:W/2, y:H/2 };
 const keys = {};
 const isTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 if(isTouch) document.body.classList.add('touch');
-let mouseDown = false, fireHeld = false, muted = false;
+let mouseDown = false, fireHeld = false, muted = false, touchUIOn = false;
 let currentName = localStorage.getItem('tankPveName') || '';
 
 /* ================= 音效（Web Audio 合成，无外部文件） ================= */
@@ -1374,7 +1374,7 @@ function joyCenter(){
 }
 function setKnob(){ joyMove.knob.style.transform = 'translate('+joyMove.dx+'px,'+joyMove.dy+'px)'; }
 document.addEventListener('touchstart', e=>{
-  if(!joyMove.el.classList.contains('show')) return;   // 非游戏状态不拦截触摸（否则吞掉按钮点击）
+  if(!touchUIOn) return;   // 非游戏状态不拦截触摸（否则吞掉按钮点击）
   for(const t of e.changedTouches){
     if(t.clientX >= window.innerWidth/2) continue;   // 右半屏交给开火按钮
     e.preventDefault();
@@ -1414,6 +1414,7 @@ document.addEventListener('touchcancel', joyEnd, { passive:false });
 const fireBtn = document.getElementById('fire-btn');
 function setTouchUI(show){
   const on = !!(show && isTouch);
+  touchUIOn = on;
   if(fireBtn) fireBtn.classList.toggle('show', on);
   if(joyMove && joyMove.el) joyMove.el.classList.toggle('show', on);
 }
