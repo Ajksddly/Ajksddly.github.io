@@ -247,6 +247,7 @@
         <span class="stat" id="lives" title="生命">❤❤❤</span>
         <span id="pow-indicators"></span>
         <button class="icon-btn" id="pause" title="暂停">⏸</button>
+        <button class="icon-btn" id="quit" title="返回主菜单">🏠</button>
         <button class="icon-btn" id="vibrate" title="震动">📳</button>
         <button class="icon-btn" id="mute" title="静音 (M)">🔊</button>
         <button class="icon-btn" id="board-toggle" title="击杀榜">🏆</button>
@@ -1243,6 +1244,7 @@ window.addEventListener('keydown', e=>{
     else if(phase==='paused'){ phase='playing'; setPauseIcon(false); banner.timer = 0; }
   }
   if(k==='escape' && mode==='pvp'){ pvpExit(); }
+  if(k==='escape' && mode==='pve' && (phase==='playing' || phase==='paused')){ backToMenu(); }
   if(k==='m') toggleMute();
   if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(e.key.toLowerCase())) e.preventDefault();
 });
@@ -1256,17 +1258,21 @@ function setPauseIcon(paused){
   const btn = document.getElementById('pause');
   if(btn) btn.textContent = paused ? '▶' : '⏸';
 }
-
-document.getElementById('start-btn').addEventListener('click', startGame);
-document.getElementById('again-btn').addEventListener('click', startGame);
-document.getElementById('menu-btn').addEventListener('click', ()=>{
+function backToMenu(){
   phase = 'start';
   fireHeld = false;
+  banner.timer = 0;
   setTouchUI(false);
+  setPauseIcon(false);
   overlayOver.classList.add('hidden');
   overlayStart.classList.remove('hidden');
   refreshBoard();
-});
+}
+
+document.getElementById('start-btn').addEventListener('click', startGame);
+document.getElementById('again-btn').addEventListener('click', startGame);
+document.getElementById('menu-btn').addEventListener('click', backToMenu);
+document.getElementById('quit').addEventListener('click', backToMenu);
 document.getElementById('clear-btn').addEventListener('click', async ()=>{
   if(online){
     if(!confirm('确定清除你在本周榜单上的记录？')) return;
