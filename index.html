@@ -1604,8 +1604,17 @@ function pvpBroadcastState(){
   pvpSend({event:'state', payload:{ id:myUid, x:pvp.me.x, y:pvp.me.y, angle:pvp.me.angle, hp:pvp.me.hp }});
 }
 function pvpBroadcastStateThrottled(){
-  if(performance.now() - pvp.lastStateSend < 100) return;
-  pvp.lastStateSend = performance.now();
+  if(!pvp.me) return;
+  const now = performance.now();
+  // 智能发送：移动/转向/血量变化时高频（约 15Hz 丝滑），静止时低频保活
+  const moved = Math.abs(pvp.me.x - (pvp.lastSentX||0)) > 0.5 ||
+                Math.abs(pvp.me.y - (pvp.lastSentY||0)) > 0.5 ||
+                Math.abs(pvp.me.angle - (pvp.lastSentAngle||0)) > 0.03 ||
+                pvp.me.hp !== pvp.lastSentHp;
+  const interval = moved ? 66 : 1000;
+  if(now - pvp.lastStateSend < interval) return;
+  pvp.lastStateSend = now;
+  pvp.lastSentX = pvp.me.x; pvp.lastSentY = pvp.me.y; pvp.lastSentAngle = pvp.me.angle; pvp.lastSentHp = pvp.me.hp;
   pvpBroadcastState();
 }
 
