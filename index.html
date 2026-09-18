@@ -416,24 +416,43 @@ let hapticsOn = localStorage.getItem('tankHaptics') !== '0';
 function haptic(p){ if(hapticsOn && navigator.vibrate){ try{ navigator.vibrate(p); }catch(e){} } }
 
 /* ================= 地图 ================= */
-function buildMap(){
+function buildMapVariant(v){
   grid = Array.from({length:ROWS}, ()=> new Array(COLS).fill(EMPTY));
   const put = (r,c,t)=>{ if(r>=0&&r<ROWS&&c>=0&&c<COLS) grid[r][c]=t; };
   const sym = (r,c,t)=>{ put(r,c,t); put(r,COLS-1-c,t); };  // 左右对称
-  // 钢墙（不可摧毁掩体）
-  sym(3,3,STEEL); sym(3,8,STEEL); sym(9,5,STEEL); sym(12,4,STEEL);
-  // 水池（挡坦克，不挡子弹）
-  for(let r=7;r<=8;r++) for(let c=0;c<=1;c++) sym(r,c,WATER);
-  // 砖墙（可摧毁）
-  for(let c=1;c<=2;c++) sym(2,c,BRICK);
-  for(let c=4;c<=5;c++) sym(2,c,BRICK);
-  sym(5,2,BRICK); sym(5,3,BRICK); sym(6,2,BRICK);
-  for(let c=3;c<=6;c++) sym(10,c,BRICK);
-  sym(12,1,BRICK); sym(12,2,BRICK); sym(13,3,BRICK);
-  sym(4,6,BRICK);
-  // 草丛（装饰，可通行）
-  sym(4,5,GRASS); sym(11,7,GRASS); sym(6,7,GRASS);
+  if(v === 1){
+    // 地图二：中央钢墙阵 + 上翼砖墙 + 中部水道
+    sym(4,4,STEEL); sym(4,9,STEEL); sym(9,6,STEEL); sym(11,7,STEEL);
+    for(let r=6;r<=7;r++) sym(r,3,WATER);
+    for(let c=3;c<=6;c++) sym(3,c,BRICK);
+    sym(6,2,BRICK); sym(6,3,BRICK); sym(7,2,BRICK);
+    for(let c=2;c<=4;c++) sym(11,c,BRICK);
+    sym(13,5,BRICK); sym(13,6,BRICK);
+    sym(5,6,GRASS); sym(10,8,GRASS); sym(12,2,GRASS);
+  } else if(v === 2){
+    // 地图三：分散钢墙 + 中下砖墙阵 + 两侧水道
+    sym(3,6,STEEL); sym(6,8,STEEL); sym(10,4,STEEL); sym(12,7,STEEL);
+    for(let r=8;r<=9;r++) sym(r,2,WATER);
+    for(let c=2;c<=3;c++) sym(4,c,BRICK);
+    for(let c=5;c<=6;c++) sym(7,c,BRICK);
+    sym(10,2,BRICK); sym(10,3,BRICK);
+    for(let c=4;c<=5;c++) sym(12,c,BRICK);
+    sym(13,2,BRICK); sym(13,7,BRICK);
+    sym(5,5,GRASS); sym(9,6,GRASS); sym(12,3,GRASS);
+  } else {
+    // 地图一（原版）
+    sym(3,3,STEEL); sym(3,8,STEEL); sym(9,5,STEEL); sym(12,4,STEEL);
+    for(let r=7;r<=8;r++) for(let c=0;c<=1;c++) sym(r,c,WATER);
+    for(let c=1;c<=2;c++) sym(2,c,BRICK);
+    for(let c=4;c<=5;c++) sym(2,c,BRICK);
+    sym(5,2,BRICK); sym(5,3,BRICK); sym(6,2,BRICK);
+    for(let c=3;c<=6;c++) sym(10,c,BRICK);
+    sym(12,1,BRICK); sym(12,2,BRICK); sym(13,3,BRICK);
+    sym(4,6,BRICK);
+    sym(4,5,GRASS); sym(11,7,GRASS); sym(6,7,GRASS);
+  }
 }
+function buildMap(){ buildMapVariant(Math.floor(Math.random()*3)); }
 
 /* ================= 碰撞 ================= */
 function hitsWall(x, y, size){
@@ -1442,26 +1461,35 @@ const pvp = {
   mode:PVP_MODES['1v1'], mySlot:-1, myTeam:-1,
   roster:[], players:[], me:null,
   state:'waiting', round:0, wins:[], countdown:0, roundOverTimer:0,
-  powerupTimer:6, lastStateSend:0, seq:0, lastHitter:null,
+  powerupTimer:6, lastStateSend:0, seq:0, lastHitter:null, mapVariant:0,
   bullets:[], powerups:[], winner:null
 };
 
 /* ---- 地图 / 出生点 ---- */
-function setPvpMap(mode){
+function setPvpMap(mode, variant){
+  variant = variant || 0;
   setMapDimensions(mode.w, mode.h);
   grid = Array.from({length:ROWS}, ()=> new Array(COLS).fill(EMPTY));
   const put = (r,c,t)=>{ if(r>=0&&r<ROWS&&c>=0&&c<COLS) grid[r][c]=t; };
   const sym = (r,c,t)=>{ put(r,c,t); put(r,COLS-1-c,t); };
   const cx = Math.floor(COLS/2), cy = Math.floor(ROWS/2);
-  // 中央掩体
-  sym(cy-1, cx-1, BRICK); sym(cy-1, cx, BRICK); sym(cy, cx-1, STEEL);
-  // 两翼掩体
-  sym(3, 4, BRICK); sym(3, 5, BRICK); sym(ROWS-4, 4, BRICK); sym(ROWS-4, 5, BRICK);
-  sym(4, 12, STEEL); sym(ROWS-5, 12, STEEL);
-  // 两侧水池（挡坦克不挡子弹）
-  sym(Math.floor(ROWS/2)-1, 2, WATER); sym(Math.floor(ROWS/2), 2, WATER);
-  // 草丛装饰
-  sym(cy-1, cx-3, GRASS); sym(cy+1, cx+2, GRASS); sym(cy, cx-5, GRASS);
+  if(variant === 1){
+    // 变体 B：中央十字 + 上下翼 + 两侧水道
+    sym(cy, cx-2, STEEL); sym(cy-2, cx-1, BRICK); sym(cy+2, cx-1, BRICK);
+    sym(4, 5, BRICK); sym(5, 6, BRICK);
+    sym(ROWS-5, 5, BRICK); sym(ROWS-6, 6, BRICK);
+    sym(cy-1, 6, WATER); sym(cy+1, 6, WATER);
+    sym(cy-2, 8, STEEL); sym(cy+2, 8, STEEL);
+    sym(5, cx-3, GRASS); sym(ROWS-6, cx+2, GRASS); sym(cy, cx+3, GRASS);
+  } else {
+    // 变体 A：中央掩体 + 两翼掩体 + 两侧水道
+    sym(cy-1, cx-1, BRICK); sym(cy-1, cx, BRICK); sym(cy, cx-1, STEEL);
+    sym(4, 6, BRICK); sym(4, 7, BRICK);
+    sym(ROWS-5, 6, BRICK); sym(ROWS-5, 7, BRICK);
+    sym(6, 9, STEEL); sym(ROWS-7, 9, STEEL);
+    sym(cy, 5, WATER); sym(cy-1, 5, WATER);
+    sym(cy-1, cx-3, GRASS); sym(cy+1, cx+2, GRASS); sym(cy, cx-5, GRASS);
+  }
 }
 function pvpSpawn(slot, mode){
   const m = 0.13;
@@ -1593,7 +1621,7 @@ function onDead(p){
   }
 }
 function onRound(p){
-  if(p.state==='countdown'){ pvp.state='countdown'; pvp.round=p.round; pvp.wins=p.wins; pvp.countdown=3; pvpResetRound(); pvpSyncUI(); }
+  if(p.state==='countdown'){ pvp.state='countdown'; pvp.round=p.round; pvp.wins=p.wins; pvp.countdown=3; pvp.mapVariant=(p.mapVariant!==undefined?p.mapVariant:0); setPvpMap(pvp.mode, pvp.mapVariant); pvpResetRound(); pvpSyncUI(); }
   else if(p.state==='play'){ pvp.state='play'; if(pvp.me) pvp.me.invincible=1.4; }
   else if(p.state==='roundover'){ pvp.state='roundover'; pvp.wins=p.wins; pvp.winner=p.winner; pvp.roundOverTimer=2.6; pvp.bullets=[]; }
   else if(p.state==='matchover'){ pvp.state='matchover'; pvp.wins=p.wins; pvp.winner=p.winner; pvpSyncUI(); }
@@ -1780,8 +1808,10 @@ function pvpBeginMatch(){
 function pvpStartRound(){
   pvp.round++;
   pvp.state='countdown'; pvp.countdown=3;
+  pvp.mapVariant = Math.floor(Math.random()*2);
+  setPvpMap(pvp.mode, pvp.mapVariant);
   pvpResetRound();
-  pvpSend({event:'round', payload:{state:'countdown', round:pvp.round, wins:pvp.wins}});
+  pvpSend({event:'round', payload:{state:'countdown', round:pvp.round, wins:pvp.wins, mapVariant:pvp.mapVariant}});
   pvpSyncUI();
 }
 function pvpEndRound(winnerKey){
