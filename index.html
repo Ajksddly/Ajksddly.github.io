@@ -1303,6 +1303,7 @@ function joyCenter(){
 }
 function setKnob(){ joyMove.knob.style.transform = 'translate('+joyMove.dx+'px,'+joyMove.dy+'px)'; }
 document.addEventListener('touchstart', e=>{
+  if(!joyMove.el.classList.contains('show')) return;   // 非游戏状态不拦截触摸（否则吞掉按钮点击）
   for(const t of e.changedTouches){
     if(t.clientX >= window.innerWidth/2) continue;   // 右半屏交给开火按钮
     e.preventDefault();
