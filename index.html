@@ -1471,7 +1471,7 @@ const pvp = {
   roster:[], players:[], me:null,
   state:'waiting', round:0, wins:[], countdown:0, roundOverTimer:0,
   powerupTimer:6, lastStateSend:0, seq:0, lastHitter:null, mapVariant:0,
-  bullets:[], powerups:[], winner:null, announce:null
+  bullets:[], powerups:[], winner:null, announce:null, pingTimer:0
 };
 
 /* ---- 地图 / 出生点 ---- */
@@ -1612,7 +1612,7 @@ function onState(p){
       t.vx = vx; t.vy = vy;
     }
   }
-  t.tx=p.x; t.ty=p.y; t.tAngle=p.angle; t.hp=p.hp; t.lastStateTime=now;
+  t.tx=p.x; t.ty=p.y; t.tAngle=p.angle; t.hp=p.hp; t.lastStateTime=now; t.lastSeen=now;
   // 兜底：血量归零但没收到 dead 消息时，也判定阵亡
   if(p.hp <= 0 && t.alive){
     t.alive = false;
@@ -1747,6 +1747,7 @@ async function pvpSetupChannel(){
   ch.on('broadcast', {event:'leave'}, (p)=>onLeave(pvpMsg(p)));
   ch.on('broadcast', {event:'powerup'}, (p)=>onPowerup(pvpMsg(p)));
   ch.on('broadcast', {event:'take'}, (p)=>onTake(pvpMsg(p)));
+  ch.on('broadcast', {event:'ping'}, (p)=>onPing(pvpMsg(p)));
   ch.subscribe((status)=>{
     if(status==='SUBSCRIBED'){
       pvp.joined=true;
@@ -2028,6 +2029,11 @@ function onTake(p){
   const i = pvp.powerups.findIndex(x => x.id === p.id);
   if(i >= 0) pvp.powerups.splice(i, 1);
 }
+function onPing(p){
+  if(p.id === myUid) return;
+  const t = pvp.players.find(x => x && x.id === p.id);
+  if(t) t.lastSeen = performance.now();
+}
 function pvpUpdatePowerups(dt){
   if(pvp.host){
     pvp.powerupTimer -= dt;
@@ -2057,6 +2063,23 @@ function pvpUpdate(dt){
   if(mode!=='pvp') return;
   shake = Math.max(0, shake - dt*2.5);
   if(pvp.announce && pvp.announce.timer > 0) pvp.announce.timer -= dt;
+  // 心跳保活：房间内每 2.5 秒发一次 ping，维持连接
+  if(pvp.code && pvp.joined){
+    pvp.pingTimer -= dt;
+    if(pvp.pingTimer <= 0){
+      pvp.pingTimer = 2.5;
+      pvpSend({event:'ping', payload:{ id:myUid }});
+    }
+  }
+  // 掉线检测：对手超过 8 秒没消息则判定掉线
+  if(pvp.state==='play' || pvp.state==='countdown' || pvp.state==='roundover'){
+    const now = performance.now();
+    for(const t of pvp.players){
+      if(!t || t.id===myUid) continue;
+      if(t.lastSeen && now - t.lastSeen > 8000) t.disconnected = true;
+      else if(t.disconnected && t.lastSeen && now - t.lastSeen <= 8000) t.disconnected = false;
+    }
+  }
   if(pvp.me){
     pvp.me.cooldown-=dt; pvp.me.muzzle-=dt;
     pvp.me.shield=Math.max(0,pvp.me.shield-dt);
@@ -2183,6 +2206,22 @@ function pvpDrawHud(){
     ctx.fillText(pvp.announce.text, W/2, 66);
     ctx.restore();
   }
+  // 掉线提示
+  if(pvp.state==='play' || pvp.state==='countdown' || pvp.state==='roundover'){
+    const dcs = pvp.players.filter(t => t && t.id!==myUid && t.disconnected);
+    if(dcs.length > 0){
+      ctx.save();
+      ctx.globalAlpha = 0.9;
+      ctx.font='bold 20px "Microsoft YaHei",sans-serif';
+      const txt = '对手掉线，等待重连…';
+      const tw = ctx.measureText(txt).width;
+      ctx.fillStyle='rgba(9,12,18,0.72)';
+      roundRect(W/2 - tw/2 - 16, 96, tw + 32, 34, 8); ctx.fill();
+      ctx.fillStyle='#f87171';
+      ctx.fillText(txt, W/2, 113);
+      ctx.restore();
+    }
+  }
   if(pvp.state==='countdown'){
     const n=Math.ceil(pvp.countdown);
     ctx.font='bold 72px "Microsoft YaHei",sans-serif';
@@ -2260,6 +2299,14 @@ pvpInviteBtn.addEventListener('click', async ()=>{
 });
 pvpCodeInput.addEventListener('keydown', e=>{ if(e.key==='Enter') pvpJoinRoom(); });
 window.addEventListener('beforeunload', ()=>{ pvpLeaveChannel(); });
+document.addEventListener('visibilitychange', ()=>{
+  if(!document.hidden && pvp.code && pvp.joined){
+    // 标签页切回可见时立即同步状态，避免切后台导致的卡顿/掉线假象
+    pvp.lastStateSend = 0;
+    pvpBroadcastState();
+    pvpSend({event:'ping', payload:{ id:myUid }});
+  }
+});
 
 /* ================= 主循环 ================= */
 function loop(ts){
