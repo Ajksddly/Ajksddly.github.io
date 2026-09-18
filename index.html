@@ -1985,22 +1985,13 @@ function lerpAngle(a,b,t){
   return a + d * t;
 }
 function pvpUpdateOthers(dt){
-  const now = performance.now();
   for(const t of pvp.players){
     if(!t || t.id===myUid || !t.alive) continue;
-    const k = Math.min(1, dt*16);
+    // 纯平滑插值（不再外推，避免目标回跳导致瞬移）
+    const k = Math.min(1, dt*13);
     t.x += (t.tx - t.x)*k;
     t.y += (t.ty - t.y)*k;
     t.angle = lerpAngle(t.angle, t.tAngle, k);
-    // 外推：目标长时间未更新时用速度预测，补偿网络延迟
-    if(t.vx !== undefined && t.lastStateTime){
-      const age = now - t.lastStateTime;
-      if(age > 80){
-        const f = Math.min(0.12, (age - 80)/2000);
-        t.tx += t.vx * f;
-        t.ty += t.vy * f;
-      }
-    }
   }
 }
 function pvpUpdateBullets(dt){
