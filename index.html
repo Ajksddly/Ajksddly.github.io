@@ -224,6 +224,10 @@
   .row{display:flex;gap:8px;margin-top:8px}
   .row .btn{flex:1}
   #pvp-code-input{text-transform:uppercase;letter-spacing:3px;text-align:center;font-family:ui-monospace,Consolas,monospace}
+  .pvp-mode{display:flex;gap:6px;margin:4px 0 12px;flex-wrap:wrap}
+  .pvp-mode-btn{flex:1;min-width:56px;padding:8px 4px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--muted);font-size:13px;font-weight:700;cursor:pointer;letter-spacing:.5px}
+  .pvp-mode-btn:hover{border-color:var(--accent)}
+  .pvp-mode-btn.active{background:linear-gradient(90deg,var(--accent),var(--accent2));color:#0b0e14;border-color:transparent}
 </style>
 <script src="config.js"></script>
 <script src="supabase.min.js"></script>
@@ -274,8 +278,14 @@
     <!-- PvP 大厅 -->
     <div class="overlay hidden" id="overlay-pvp">
       <div class="card">
-        <div class="title">双人对战</div>
-        <div class="subtitle">TANK PvP · 实时对战 · 先赢 5 局</div>
+        <div class="title">多人对战</div>
+        <div class="subtitle" id="pvp-subtitle">选择模式后创建房间 · 或加入好友房间</div>
+        <div class="pvp-mode" id="pvp-mode-group">
+          <button class="pvp-mode-btn" data-mode="1v1">1v1</button>
+          <button class="pvp-mode-btn" data-mode="1v1v1">1v1v1</button>
+          <button class="pvp-mode-btn" data-mode="2v2">2v2</button>
+          <button class="pvp-mode-btn" data-mode="1v1v1v1">1v1v1v1</button>
+        </div>
         <button class="btn" id="pvp-create-btn">➕ 创建房间</button>
         <div class="field" id="pvp-join-field">
           <label>输入好友的房间码</label>
@@ -330,9 +340,14 @@
 "use strict";
 
 /* ================= 基础配置 ================= */
-const W = 800, H = 600, TILE = 40;
-const COLS = W / TILE, ROWS = H / TILE;   // 20 x 15
+let W = 800, H = 600, TILE = 40;
+let COLS = W / TILE, ROWS = H / TILE;   // 20 x 15
 const TAU = Math.PI * 2;
+function setMapDimensions(w, h){
+  W = w; H = h;
+  COLS = W / TILE; ROWS = H / TILE;
+  canvas.width = W; canvas.height = H;
+}
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -585,6 +600,7 @@ function showBanner(text){
 
 /* ================= 初始化 / 流程 ================= */
 function init(){
+  setMapDimensions(800, 600);
   score = 0; kills = 0; wave = 0;
   enemies = []; bullets = []; powerups = []; particles = []; floats = [];
   shake = 0; banner = { text:'', timer:0 };
@@ -1365,10 +1381,10 @@ function fitCanvas(){
     const availW = (wrap.clientWidth || window.innerWidth || 800) - pad;
     const hudH = hud && hud.offsetHeight ? hud.offsetHeight : 0;
     const availH = window.innerHeight - hudH - 40;
-    const scale = Math.min(availW / 800, availH / 600);
+    const scale = Math.min(availW / W, availH / H);
     if(isFinite(scale) && scale > 0){
-      canvas.style.width = Math.floor(800 * scale) + 'px';
-      canvas.style.height = Math.floor(600 * scale) + 'px';
+      canvas.style.width = Math.floor(W * scale) + 'px';
+      canvas.style.height = Math.floor(H * scale) + 'px';
       canvas.style.margin = '0 auto';
     }
   }catch(e){}
@@ -1387,8 +1403,16 @@ function tryLandscape(){
   }catch(e){ lock(); }
 }
 
-/* ================= PvP 双人对战（Supabase Realtime 广播） ================= */
-const PVP_WIN = 5, PVP_MAXHP = 3, PVP_BULLET_SPEED = 360;
+/* ================= PvP 多人对战（Supabase Realtime 广播） ================= */
+const PVP_MODES = {
+  '1v1':     { key:'1v1',     players:2, teams:0, win:5, w:800,  h:600 },
+  '1v1v1':   { key:'1v1v1',   players:3, teams:0, win:3, w:960,  h:720 },
+  '2v2':     { key:'2v2',     players:4, teams:2, win:3, w:1120, h:840 },
+  '1v1v1v1': { key:'1v1v1v1', players:4, teams:0, win:3, w:1120, h:840 }
+};
+const PVP_COLORS = ['#4ade80', '#f87171', '#60a5fa', '#fbbf24'];   // 绿红蓝黄
+const PVP_MAXHP = 3, PVP_BULLET_SPEED = 360;
+
 const overlayPvp = document.getElementById('overlay-pvp');
 const pvpBtn = document.getElementById('pvp-btn');
 const pvpStatus = document.getElementById('pvp-status');
@@ -1400,42 +1424,94 @@ const pvpCodeInput = document.getElementById('pvp-code-input');
 const pvpInviteBtn = document.getElementById('pvp-invite-btn');
 const pvpAgainBtn = document.getElementById('pvp-again-btn');
 const pvpBackBtn = document.getElementById('pvp-back-btn');
+const pvpModeGroup = document.getElementById('pvp-mode-group');
+const pvpSubtitle = document.getElementById('pvp-subtitle');
 const lblScore = document.getElementById('lbl-score');
 const lblKills = document.getElementById('lbl-kills');
 const lblWave = document.getElementById('lbl-wave');
 
 function setHudLabels(m){
-  if(lblScore) lblScore.textContent = m==='pvp' ? '胜局' : '得分';
+  if(lblScore) lblScore.textContent = m==='pvp' ? '胜场' : '得分';
   if(lblKills) lblKills.textContent = m==='pvp' ? '生命' : '击杀';
   if(lblWave) lblWave.textContent = m==='pvp' ? '回合' : '波次';
 }
 
 const pvp = {
   code:'', host:false, joined:false, channel:null,
-  oppId:null, oppName:'',
-  state:'waiting', round:0, score:[0,0], winner:null,
-  countdown:0, roundOverTimer:0, powerupTimer:6, lastStateSend:0, seq:0,
-  me:null, opp:null, bullets:[], powerups:[]
+  mode:PVP_MODES['1v1'], mySlot:-1, myTeam:-1,
+  roster:[], players:[], me:null,
+  state:'waiting', round:0, wins:[], countdown:0, roundOverTimer:0,
+  powerupTimer:6, lastStateSend:0, seq:0, lastHitter:null,
+  bullets:[], powerups:[], winner:null
 };
 
-function buildPvpMap(){
+/* ---- 地图 / 出生点 ---- */
+function setPvpMap(mode){
+  setMapDimensions(mode.w, mode.h);
   grid = Array.from({length:ROWS}, ()=> new Array(COLS).fill(EMPTY));
   const put = (r,c,t)=>{ if(r>=0&&r<ROWS&&c>=0&&c<COLS) grid[r][c]=t; };
   const sym = (r,c,t)=>{ put(r,c,t); put(r,COLS-1-c,t); };
-  sym(7,8,BRICK); sym(7,9,BRICK); sym(8,8,STEEL);
-  sym(3,5,BRICK); sym(3,6,BRICK); sym(12,5,BRICK); sym(12,6,BRICK);
-  sym(4,12,STEEL); sym(11,12,STEEL);
-  sym(6,3,WATER); sym(9,3,WATER);
-  sym(5,9,GRASS); sym(10,9,GRASS); sym(7,4,GRASS); sym(7,11,GRASS);
+  const cx = Math.floor(COLS/2), cy = Math.floor(ROWS/2);
+  // 中央掩体
+  sym(cy-1, cx-1, BRICK); sym(cy-1, cx, BRICK); sym(cy, cx-1, STEEL);
+  // 两翼掩体
+  sym(3, 4, BRICK); sym(3, 5, BRICK); sym(ROWS-4, 4, BRICK); sym(ROWS-4, 5, BRICK);
+  sym(4, 12, STEEL); sym(ROWS-5, 12, STEEL);
+  // 两侧水池（挡坦克不挡子弹）
+  sym(Math.floor(ROWS/2)-1, 2, WATER); sym(Math.floor(ROWS/2), 2, WATER);
+  // 草丛装饰
+  sym(cy-1, cx-3, GRASS); sym(cy+1, cx+2, GRASS); sym(cy, cx-5, GRASS);
+}
+function pvpSpawn(slot, mode){
+  const m = 0.13;
+  if(mode.players === 2) return slot===0 ? [W*m, H/2] : [W*(1-m), H/2];
+  if(mode.players === 3) return slot===0 ? [W*m, H/2] : slot===1 ? [W*(1-m), H/2] : [W/2, H*m];
+  if(mode.teams) return slot===0 ? [W*m, H*0.3] : slot===1 ? [W*m, H*0.7] : slot===2 ? [W*(1-m), H*0.3] : [W*(1-m), H*0.7];
+  return slot===0 ? [W*m, H*m] : slot===1 ? [W*(1-m), H*m] : slot===2 ? [W*m, H*(1-m)] : [W*(1-m), H*(1-m)];
 }
 
+/* ---- 玩家列表 / 出生重置 ---- */
+function pvpRebuildRoster(roster){
+  pvp.roster = roster || [];
+  const arr = [];
+  for(const r of pvp.roster){
+    const ex = pvp.players && pvp.players[r.slot];
+    const t = ex || { cooldown:0, muzzle:0, shield:0, rapid:0, invincible:0 };
+    const color = PVP_COLORS[r.slot % PVP_COLORS.length];
+    Object.assign(t, {
+      id:r.id, name:r.name, slot:r.slot, team:(r.team===undefined?0:r.team),
+      color, size:34, speed:175, hp:PVP_MAXHP, maxhp:PVP_MAXHP, alive:true,
+      tier:{ color, name:r.name }
+    });
+    arr[r.slot] = t;
+  }
+  pvp.players = arr;
+  pvp.me = pvp.players.find(p => p && p.id === myUid) || null;
+  if(pvp.me){ pvp.mySlot = pvp.me.slot; pvp.myTeam = pvp.me.team; }
+}
+function pvpResetRound(){
+  pvp.bullets = []; pvp.powerups = []; pvp.powerupTimer = 6; pvp.lastHitter = null;
+  if(!pvp.mode || !pvp.players.length) return;
+  const cx = W/2, cy = H/2;
+  for(let i=0;i<pvp.players.length;i++){
+    const t = pvp.players[i];
+    if(!t) continue;
+    const sp = pvpSpawn(i, pvp.mode);
+    const ang = Math.atan2(cy - sp[1], cx - sp[0]);
+    Object.assign(t, {
+      x:sp[0], y:sp[1], tx:sp[0], ty:sp[1], angle:ang, tAngle:ang,
+      hp:PVP_MAXHP, maxhp:PVP_MAXHP, alive:true, cooldown:0, muzzle:0, shield:0, rapid:0, invincible:0
+    });
+  }
+}
+
+/* ---- 网络基础 ---- */
 function pvpGenCode(){
   const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let s=''; for(let i=0;i<4;i++) s+=chars[Math.floor(Math.random()*chars.length)];
   return s;
 }
 function pvpSetStatus(t, cls){ if(pvpStatus){ pvpStatus.textContent=t; pvpStatus.className='pvp-status'+(cls?(' '+cls):''); } }
-
 function pvpMsg(p){ return (p && p.type === 'broadcast' && p.payload !== undefined) ? p.payload : p; }
 function pvpSend(msg){
   if(!pvp.channel || !pvp.joined) return;
@@ -1451,61 +1527,97 @@ function pvpBroadcastStateThrottled(){
   pvpBroadcastState();
 }
 
-function pvpResetRound(){
-  pvp.bullets=[]; pvp.powerups=[]; pvp.powerupTimer=6;
-  const myX = pvp.host ? TILE*1.5 : W-TILE*1.5;
-  const oppX = pvp.host ? W-TILE*1.5 : TILE*1.5;
-  const myAngle = pvp.host ? 0 : Math.PI;
-  if(!pvp.me) pvp.me = {};
-  Object.assign(pvp.me, { x:myX, y:H/2, size:34, angle:myAngle, speed:175,
-    hp:PVP_MAXHP, maxhp:PVP_MAXHP, cooldown:0, muzzle:0, shield:0, rapid:0,
-    invincible:0, alive:true, tier:{color:'#4ade80', name:currentName} });
-  if(!pvp.opp) pvp.opp = {};
-  Object.assign(pvp.opp, { x:oppX, y:H/2, tx:oppX, ty:H/2, tAngle:pvp.host?Math.PI:0,
-    size:34, angle:pvp.host?Math.PI:0, speed:175, hp:PVP_MAXHP, maxhp:PVP_MAXHP,
-    tier:{color:'#f87171', name:pvp.oppName||'对手'}, alive:true });
-}
-
 /* ---- 网络消息处理 ---- */
-function onHello(p){ if(p.id===myUid) return; if(pvp.host && !pvp.oppId){ pvp.oppId=p.id; pvp.oppName=p.name||'对手'; if(pvp.opp) pvp.opp.tier.name=pvp.oppName; pvpSend({event:'sync', payload:{hostId:myUid, hostName:currentName}}); pvpRenderLobby(); } else if(pvp.host && pvp.oppId && pvp.oppId!==p.id){ pvpSend({event:'full', payload:{target:p.id}}); } }
-function onSync(p){ if(pvp.host) return; pvp.oppId=p.hostId; pvp.oppName=p.hostName||'对手'; if(pvp.opp) pvp.opp.tier.name=pvp.oppName; pvpSend({event:'ready', payload:{id:myUid, name:currentName}}); pvpRenderLobby(); }
-function onReady(p){ if(!pvp.host) return; if(p.id===pvp.oppId && pvp.state==='waiting') pvpBeginMatch(); }
-function onState(p){ if(p.id===myUid || !pvp.opp) return; pvp.opp.tx=p.x; pvp.opp.ty=p.y; pvp.opp.tAngle=p.angle; pvp.opp.hp=p.hp; }
-function onFire(p){ if(p.owner===myUid) return; const b={id:p.id,x:p.x,y:p.y,angle:p.angle,speed:PVP_BULLET_SPEED,owner:'them',size:4,life:2.5}; if(!pvp.bullets.some(x=>x.id===b.id)) pvp.bullets.push(b); }
-function onHit(p){
-  if(p.victimId!==myUid || !pvp.me || !pvp.me.alive) return;
-  if(pvp.me.invincible>0 || pvp.me.shield>0) return;   // 无敌/护盾免疫
-  pvp.me.hp = Math.max(0, pvp.me.hp - (p.damage||1));
-  sfx.hit(); haptic([20,30]); sparks(pvp.me.x, pvp.me.y, '#4ade80');
-  pvpBroadcastState();
-  if(pvp.me.hp<=0){
-    pvp.me.alive=false;
-    spawnExplosion(pvp.me.x, pvp.me.y, '#4ade80', 26);
-    pvpSend({event:'dead', payload:{id:myUid}});
+function onHello(p){
+  if(p.id===myUid) return;
+  if(!pvp.host) return;
+  // 已有该玩家则忽略
+  if(pvp.roster.some(r => r.id === p.id)) return;
+  if(pvp.roster.length >= pvp.mode.players){ pvpSend({event:'full', payload:{target:p.id}}); return; }
+  const slot = pvp.roster.length;
+  const team = pvp.mode.teams ? (slot < 2 ? 0 : 1) : 0;
+  pvp.roster.push({ id:p.id, name:p.name||'对手', slot, team });
+  pvpRebuildRoster(pvp.roster);
+  pvpResetRound();
+  pvpBroadcastRoster();
+}
+function onRoster(p){
+  if(pvp.host) return;           // 房主自己维护 roster，不收自己的广播
+  pvp.mode = p.mode && PVP_MODES[p.mode.key] ? p.mode : PVP_MODES['1v1'];
+  setPvpMap(pvp.mode);
+  pvpRebuildRoster(p.players);
+  pvpResetRound();
+  if(pvp.me && pvp.state==='waiting'){
+    pvpSend({event:'ready', payload:{ id:myUid, name:currentName }});
   }
+  pvpRenderLobby();
+}
+function onReady(p){
+  if(!pvp.host) return;
+  const r = pvp.roster.find(x => x.id === p.id);
+  if(r && pvp.state==='waiting' && pvp.roster.length === pvp.mode.players) pvpBeginMatch();
+}
+function onState(p){
+  if(p.id===myUid) return;
+  const t = pvp.players.find(x => x && x.id === p.id);
+  if(!t) return;
+  t.tx=p.x; t.ty=p.y; t.tAngle=p.angle; t.hp=p.hp;
+}
+function onFire(p){
+  if(p.owner===myUid) return;
+  const b={ id:p.id, x:p.x, y:p.y, angle:p.angle, speed:PVP_BULLET_SPEED, owner:p.owner, size:4, life:2.5 };
+  if(!pvp.bullets.some(x=>x.id===b.id)) pvp.bullets.push(b);
 }
 function onDead(p){
-  const victimMe = p.id===myUid;
-  if(victimMe){ if(pvp.me) pvp.me.alive=false; }
-  else if(pvp.opp){ pvp.opp.alive=false; spawnExplosion(pvp.opp.x, pvp.opp.y, '#f87171', 26); }
+  const victim = pvp.players.find(t => t && t.id === p.id);
+  if(victim){ victim.alive = false; spawnExplosion(victim.x, victim.y, victim.color, 26); }
   if(pvp.host && pvp.state==='play'){
-    if(victimMe) pvp.score[1]++; else pvp.score[0]++;
-    pvp.state='roundover'; pvp.roundOverTimer=2.6;
-    pvp.winner = victimMe ? pvp.oppId : myUid;
-    pvp.bullets=[];
-    pvpSend({event:'round', payload:{state:'roundover', round:pvp.round, score:pvp.score, winner:pvp.winner}});
+    const alive = pvp.players.filter(t => t && t.alive);
+    if(pvp.mode.teams){
+      const teams = {};
+      for(const t of alive) teams[t.team] = true;
+      const ks = Object.keys(teams);
+      if(ks.length === 1){
+        const wt = parseInt(ks[0], 10);
+        pvp.wins[wt] = (pvp.wins[wt]||0) + 1;
+        pvpEndRound(wt);
+      }
+    } else {
+      if(alive.length === 1){
+        const ws = alive[0].slot;
+        pvp.wins[ws] = (pvp.wins[ws]||0) + 1;
+        pvpEndRound(ws);
+      }
+    }
   }
 }
 function onRound(p){
-  if(p.state==='countdown'){ pvp.state='countdown'; pvp.round=p.round; pvp.score=p.score; pvp.countdown=3; pvpResetRound(); pvpSyncUI(); }
+  if(p.state==='countdown'){ pvp.state='countdown'; pvp.round=p.round; pvp.wins=p.wins; pvp.countdown=3; pvpResetRound(); pvpSyncUI(); }
   else if(p.state==='play'){ pvp.state='play'; if(pvp.me) pvp.me.invincible=1.4; }
-  else if(p.state==='roundover'){ pvp.state='roundover'; pvp.score=p.score; pvp.winner=p.winner; pvp.roundOverTimer=2.6; pvp.bullets=[]; }
-  else if(p.state==='matchover'){ pvp.state='matchover'; pvp.score=p.score; pvp.winner=p.winner; pvpSyncUI(); }
+  else if(p.state==='roundover'){ pvp.state='roundover'; pvp.wins=p.wins; pvp.winner=p.winner; pvp.roundOverTimer=2.6; pvp.bullets=[]; }
+  else if(p.state==='matchover'){ pvp.state='matchover'; pvp.wins=p.wins; pvp.winner=p.winner; pvpSyncUI(); }
+  else if(p.state==='abort'){ pvp.state='waiting'; pvp.wins=[]; pvp.bullets=[]; pvp.powerups=[]; pvpResetRound(); pvpSyncUI(); }
 }
 function onFull(p){ if(p.target===myUid){ pvpLeaveChannel(); pvpResetState(); pvpSyncUI(); pvpSetStatus('房间已满，请重试','bad'); } }
-function onLeave(p){ if(p.id!==pvp.oppId) return; if(pvp.host){ pvp.oppId=null; pvp.oppName=''; pvp.state='waiting'; pvp.bullets=[]; pvp.powerups=[]; pvpSyncUI(); } else { pvpLeaveChannel(); pvpResetState(); pvpSyncUI(); pvpSetStatus('房主已离开，房间已关闭','bad'); } }
+function onLeave(p){
+  if(!pvp.host){ if(p.id && pvp.roster.some(r=>r.id===p.id)){ pvpLeaveChannel(); pvpResetState(); pvpSyncUI(); pvpSetStatus('房主已离开，房间已关闭','bad'); } return; }
+  const i = pvp.roster.findIndex(r => r.id === p.id);
+  if(i < 0) return;
+  pvp.roster.splice(i, 1);
+  if(pvp.state !== 'waiting'){ pvp.state='waiting'; pvp.wins=[]; pvp.bullets=[]; pvp.powerups=[]; pvpSend({event:'round', payload:{state:'abort'}}); }
+  pvpBroadcastRoster();
+  pvpSyncUI();
+}
+
+function pvpBroadcastRoster(){
+  pvpSend({ event:'roster', payload:{ mode:pvp.mode, players:pvp.roster } });
+}
 
 /* ---- 大厅 UI ---- */
+function pvpWinsText(){
+  if(pvp.mode && pvp.mode.teams) return (pvp.wins[0]||0) + ' : ' + (pvp.wins[1]||0);
+  return pvp.roster.map((r,i)=> (r.name||'?') + ' ' + (pvp.wins[r.slot]||0)).join('  ');
+}
 function pvpRenderLobby(){
   const idle = !pvp.code;
   if(idle){
@@ -1516,26 +1628,32 @@ function pvpRenderLobby(){
     pvpInviteBtn.style.display='none';
     pvpAgainBtn.style.display='none';
     pvpBackBtn.textContent='返回主菜单';
-    pvpSetStatus('创建或加入一个房间，与好友实时对战');
+    if(pvpModeGroup) pvpModeGroup.style.display='';
+    pvpSetStatus('选择模式并创建房间，或加入好友的房间码');
     return;
   }
   pvpCreateBtn.classList.add('hidden');
   pvpJoinBtn.classList.add('hidden');
   pvpJoinField.classList.add('hidden');
+  if(pvpModeGroup) pvpModeGroup.style.display='none';
   pvpCodeEl.classList.remove('hidden');
   pvpCodeEl.textContent = '房间码 ' + pvp.code;
   pvpInviteBtn.style.display='';
   pvpBackBtn.textContent='退出房间';
   if(pvp.state==='matchover'){
-    const win = pvp.winner===myUid;
-    let t = (win?'🎉 你赢了！':'😞 你输了') + '　比分 ' + pvp.score[0] + ' : ' + pvp.score[1];
+    const win = pvp.mode && pvp.mode.teams ? (pvp.winner===pvp.myTeam) : (pvp.winner===pvp.mySlot);
+    let t = (win?'🎉 你赢了！':'😞 你输了') + '　比分 ' + pvpWinsText();
     if(!pvp.host) t += '（等待房主再来一局）';
     pvpSetStatus(t, win?'ok':'bad');
     pvpAgainBtn.style.display = pvp.host ? '' : 'none';
     pvpAgainBtn.textContent='再来一局';
+  } else if(pvp.state==='waiting'){
+    pvpAgainBtn.style.display='none';
+    const n = pvp.roster.length, target = pvp.mode ? pvp.mode.players : 2;
+    pvpSetStatus('模式 ' + (pvp.mode?pvp.mode.key:'?') + ' · 等待玩家 ' + n + '/' + target + '… 把房间码发给好友');
   } else {
     pvpAgainBtn.style.display='none';
-    pvpSetStatus(pvp.oppId ? '对手已加入，即将开始…' : '等待对手加入… 把房间码发给好友');
+    pvpSetStatus('对局进行中…');
   }
 }
 function pvpSyncUI(){
@@ -1561,11 +1679,10 @@ async function pvpSetupChannel(){
   const ch = sb.channel('tankpvp:' + pvp.code, { config:{ broadcast:{ self:true } } });
   pvp.channel = ch;
   ch.on('broadcast', {event:'hello'}, (p)=>onHello(pvpMsg(p)));
-  ch.on('broadcast', {event:'sync'}, (p)=>onSync(pvpMsg(p)));
+  ch.on('broadcast', {event:'roster'}, (p)=>onRoster(pvpMsg(p)));
   ch.on('broadcast', {event:'ready'}, (p)=>onReady(pvpMsg(p)));
   ch.on('broadcast', {event:'state'}, (p)=>onState(pvpMsg(p)));
   ch.on('broadcast', {event:'fire'}, (p)=>onFire(pvpMsg(p)));
-  ch.on('broadcast', {event:'hit'}, (p)=>onHit(pvpMsg(p)));
   ch.on('broadcast', {event:'dead'}, (p)=>onDead(pvpMsg(p)));
   ch.on('broadcast', {event:'round'}, (p)=>onRound(pvpMsg(p)));
   ch.on('broadcast', {event:'full'}, (p)=>onFull(pvpMsg(p)));
@@ -1573,8 +1690,14 @@ async function pvpSetupChannel(){
   ch.subscribe((status)=>{
     if(status==='SUBSCRIBED'){
       pvp.joined=true;
-      pvpResetRound();
-      pvpSend({event:'hello', payload:{ id:myUid, name: currentName }});
+      if(pvp.host){
+        pvp.roster = [{ id:myUid, name:currentName, slot:0, team:0 }];
+        pvpRebuildRoster(pvp.roster);
+        pvpResetRound();
+        pvpBroadcastRoster();
+      } else {
+        pvpSend({event:'hello', payload:{ id:myUid, name:currentName }});
+      }
       pvpRenderLobby();
     } else if(status==='CHANNEL_ERROR' || status==='TIMED_OUT'){
       pvp.joined=false;
@@ -1589,19 +1712,20 @@ function pvpLeaveChannel(){
 }
 function pvpResetState(){
   pvp.code=''; pvp.host=false; pvp.joined=false;
-  pvp.oppId=null; pvp.oppName='';
-  pvp.state='waiting'; pvp.round=0; pvp.score=[0,0]; pvp.winner=null;
+  pvp.roster=[]; pvp.players=[]; pvp.me=null; pvp.mySlot=-1; pvp.myTeam=-1;
+  pvp.state='waiting'; pvp.round=0; pvp.wins=[]; pvp.winner=null; pvp.lastHitter=null;
   pvp.countdown=0; pvp.roundOverTimer=0;
-  pvp.bullets=[]; pvp.powerups=[]; pvp.me=null; pvp.opp=null;
-  pvp.channel=null;
+  pvp.bullets=[]; pvp.powerups=[]; pvp.channel=null;
 }
 function pvpOpenLobby(){
   captureName();
   mode='pvp';
   setHudLabels('pvp');
   if(document.getElementById('pause')) document.getElementById('pause').textContent='🚪';
-  buildPvpMap();
   pvpResetState();
+  pvp.mode = PVP_MODES['1v1'];
+  pvpSyncModeUI();
+  setPvpMap(pvp.mode);
   overlayStart.classList.add('hidden');
   overlayOver.classList.add('hidden');
   overlayPvp.classList.remove('hidden');
@@ -1614,6 +1738,7 @@ function pvpExit(){
   mode='pve';
   setHudLabels('pve');
   if(document.getElementById('pause')) document.getElementById('pause').textContent='⏸';
+  setMapDimensions(800, 600);
   buildMap();
   overlayPvp.classList.add('hidden');
   overlayStart.classList.remove('hidden');
@@ -1623,8 +1748,8 @@ function pvpExit(){
 async function pvpCreateRoom(){
   if(!await pvpEnsureOnline()) return;
   pvp.code=pvpGenCode(); pvp.host=true;
-  pvp.state='waiting'; pvp.round=0; pvp.score=[0,0]; pvp.winner=null;
-  pvp.bullets=[]; pvp.powerups=[]; pvp.oppId=null; pvp.oppName='';
+  pvp.state='waiting'; pvp.round=0; pvp.wins=[]; pvp.winner=null;
+  pvp.bullets=[]; pvp.powerups=[]; pvp.roster=[]; pvp.lastHitter=null;
   pvpSetStatus('正在创建房间…');
   try{ await pvpSetupChannel(); }catch(e){ pvpSetStatus('创建房间失败：'+e.message,'bad'); return; }
   try{ if(navigator.clipboard) navigator.clipboard.writeText(pvp.code); }catch(e){}
@@ -1634,8 +1759,8 @@ async function pvpJoinRoom(){
   if(!/^[A-Z0-9]{4}$/.test(code)){ pvpSetStatus('请输入 4 位房间码','bad'); return; }
   if(!await pvpEnsureOnline()) return;
   pvp.code=code; pvp.host=false;
-  pvp.state='waiting'; pvp.round=0; pvp.score=[0,0]; pvp.winner=null;
-  pvp.bullets=[]; pvp.powerups=[]; pvp.oppId=null; pvp.oppName='';
+  pvp.state='waiting'; pvp.round=0; pvp.wins=[]; pvp.winner=null;
+  pvp.bullets=[]; pvp.powerups=[]; pvp.roster=[]; pvp.players=[]; pvp.lastHitter=null;
   pvpSetStatus('正在加入房间…');
   try{ await pvpSetupChannel(); }catch(e){ pvpSetStatus('加入房间失败：'+e.message,'bad'); return; }
 }
@@ -1646,26 +1771,49 @@ async function pvpJoinRoomFromUrl(code){
 
 /* ---- 对战流程（房主驱动） ---- */
 function pvpBeginMatch(){
-  pvp.round=0; pvp.score=[0,0]; pvp.winner=null;
+  pvp.round=0;
+  pvp.wins = pvp.mode.teams ? [0,0] : new Array(pvp.mode.players).fill(0);
+  pvp.winner=null;
   pvpStartRound();
 }
 function pvpStartRound(){
   pvp.round++;
   pvp.state='countdown'; pvp.countdown=3;
   pvpResetRound();
-  pvpSend({event:'round', payload:{state:'countdown', round:pvp.round, score:pvp.score}});
+  pvpSend({event:'round', payload:{state:'countdown', round:pvp.round, wins:pvp.wins}});
   pvpSyncUI();
+}
+function pvpEndRound(winnerKey){
+  pvp.winner = winnerKey;
+  pvp.state='roundover';
+  pvp.roundOverTimer=2.6;
+  pvp.bullets=[];
+  pvpSend({event:'round', payload:{state:'roundover', round:pvp.round, wins:pvp.wins, winner:winnerKey}});
 }
 
 /* ---- 输入 / 移动 / 射击 ---- */
-function pvpHitsOther(x,y,size,other){
-  return other && other.alive && dist2(x,y,other.x,other.y) < Math.pow(size/2 + other.size/2, 2);
+function pvpNearestEnemy(){
+  if(!pvp.me) return null;
+  let best=null, bd=Infinity;
+  for(const t of pvp.players){
+    if(!t || t.id===myUid || !t.alive) continue;
+    const d = dist2(pvp.me.x, pvp.me.y, t.x, t.y);
+    if(d < bd){ bd=d; best=t; }
+  }
+  return best;
 }
-function pvpMoveTank(t,dx,dy,other){
+function pvpHitsOther(x,y,size,self){
+  for(const t of pvp.players){
+    if(!t || t===self || !t.alive) continue;
+    if(dist2(x,y,t.x,t.y) < Math.pow(size/2 + t.size/2, 2)) return true;
+  }
+  return false;
+}
+function pvpMoveTank(t,dx,dy){
   const ox=t.x, oy=t.y;
   const nx=t.x+dx, ny=t.y+dy;
-  if(!hitsWall(nx,t.y,t.size) && !pvpHitsOther(nx,t.y,t.size,other)) t.x=nx;
-  if(!hitsWall(t.x,ny,t.size) && !pvpHitsOther(t.x,ny,t.size,other)) t.y=ny;
+  if(!hitsWall(nx,t.y,t.size) && !pvpHitsOther(nx,t.y,t.size,t)) t.x=nx;
+  if(!hitsWall(t.x,ny,t.size) && !pvpHitsOther(t.x,ny,t.size,t)) t.y=ny;
   return Math.abs(t.x-ox)>0.001 || Math.abs(t.y-oy)>0.001;
 }
 function pvpFire(){
@@ -1675,7 +1823,7 @@ function pvpFire(){
   if(me.cooldown>0) return;
   me.cooldown=cd;
   const id = myUid + '-' + (pvp.seq++);
-  pvp.bullets.push({ id, x:me.x, y:me.y, angle:me.angle, speed:PVP_BULLET_SPEED, owner:'me', size:4, life:2.5 });
+  pvp.bullets.push({ id, x:me.x, y:me.y, angle:me.angle, speed:PVP_BULLET_SPEED, owner:myUid, size:4, life:2.5 });
   pvpSend({event:'fire', payload:{ id, owner:myUid, x:me.x, y:me.y, angle:me.angle }});
   me.muzzle=0.06;
   sfx.shoot(); haptic(10);
@@ -1690,16 +1838,13 @@ function pvpUpdatePlayerPvp(dt){
   if(joyMove.active && Math.hypot(joyMove.dx, joyMove.dy) > 8){ dx += joyMove.dx / JOY_R; dy += joyMove.dy / JOY_R; }
   if(dx||dy){
     const m = Math.hypot(dx,dy);
-    pvpMoveTank(me, dx/m*me.speed*dt, dy/m*me.speed*dt, pvp.opp);
+    pvpMoveTank(me, dx/m*me.speed*dt, dy/m*me.speed*dt);
   }
+  const target = pvpNearestEnemy();
   const aimMouse = (performance.now() - lastMouseMove) <= 2000;
-  if(fireHeld && pvp.opp && pvp.opp.alive){
-    me.angle = Math.atan2(pvp.opp.y - me.y, pvp.opp.x - me.x);
-  } else if(aimMouse || !(dx||dy)){
-    me.angle = Math.atan2(mouse.y - me.y, mouse.x - me.x);
-  } else {
-    me.angle = Math.atan2(dy, dx);
-  }
+  if(fireHeld && target){ me.angle = Math.atan2(target.y - me.y, target.x - me.x); }
+  else if(aimMouse || !(dx||dy)){ me.angle = Math.atan2(mouse.y - me.y, mouse.x - me.x); }
+  else { me.angle = Math.atan2(dy, dx); }
   const firing = mouseDown || keys[' '] || keys['j'] || fireHeld;
   if(firing && me.cooldown<=0) pvpFire();
 }
@@ -1711,12 +1856,14 @@ function lerpAngle(a,b,t){
   while(d < -Math.PI) d += TAU;
   return a + d * t;
 }
-function pvpUpdateOpp(dt){
-  const o = pvp.opp; if(!o) return;
-  const k = Math.min(1, dt*14);
-  o.x += (o.tx - o.x)*k;
-  o.y += (o.ty - o.y)*k;
-  o.angle = lerpAngle(o.angle, o.tAngle, k);
+function pvpUpdateOthers(dt){
+  for(const t of pvp.players){
+    if(!t || t.id===myUid || !t.alive) continue;
+    const k = Math.min(1, dt*14);
+    t.x += (t.tx - t.x)*k;
+    t.y += (t.ty - t.y)*k;
+    t.angle = lerpAngle(t.angle, t.tAngle, k);
+  }
 }
 function pvpUpdateBullets(dt){
   for(let i=pvp.bullets.length-1;i>=0;i--){
@@ -1733,22 +1880,26 @@ function pvpUpdateBullets(dt){
         else if(t===BRICK){ dead=true; grid[r][c]=EMPTY; sfx.hit(); sparks(b.x,b.y,'#b45309'); shake=Math.max(shake,0.1); }
       }
     }
-    if(!dead && b.owner==='me'){
-      if(pvp.opp && pvp.opp.alive && dist2(b.x,b.y,pvp.opp.x,pvp.opp.y) < Math.pow(pvp.opp.size/2 + b.size + 3, 2)){
-        dead = true;
-        sparks(b.x,b.y,'#f87171');
+    if(b.owner === myUid){
+      if(!dead){
+        for(const t of pvp.players){
+          if(!t || t.id===myUid || !t.alive) continue;
+          if(dist2(b.x,b.y,t.x,t.y) < Math.pow(t.size/2 + b.size + 3, 2)){
+            dead = true; sparks(b.x,b.y,t.color); break;
+          }
+        }
       }
-    } else if(!dead && b.owner==='them'){
-      if(pvp.me && pvp.me.alive && dist2(b.x,b.y,pvp.me.x,pvp.me.y) < Math.pow(pvp.me.size/2 + b.size + 3, 2)){
+    } else {
+      if(!dead && pvp.me && pvp.me.alive && dist2(b.x,b.y,pvp.me.x,pvp.me.y) < Math.pow(pvp.me.size/2 + b.size + 3, 2)){
         dead = true;
         if(pvp.me.invincible<=0 && pvp.me.shield<=0){
           pvp.me.hp = Math.max(0, pvp.me.hp - 1);
-          sfx.hit(); haptic([20,30]); sparks(pvp.me.x, pvp.me.y, '#4ade80');
+          pvp.lastHitter = b.owner;
+          sfx.hit(); haptic([20,30]); sparks(pvp.me.x, pvp.me.y, pvp.me.color);
           pvpBroadcastState();
           if(pvp.me.hp<=0){
             pvp.me.alive=false;
-            spawnExplosion(pvp.me.x, pvp.me.y, '#4ade80', 26);
-            pvpSend({event:'dead', payload:{id:myUid}});
+            pvpSend({event:'dead', payload:{ id:myUid, killer: pvp.lastHitter }});
           }
         }
       }
@@ -1795,11 +1946,11 @@ function pvpUpdate(dt){
     if(pvp.countdown<=0){
       pvp.state='play';
       if(pvp.me) pvp.me.invincible=1.4;
-      if(pvp.host) pvpSend({event:'round', payload:{state:'play', round:pvp.round, score:pvp.score}});
+      if(pvp.host) pvpSend({event:'round', payload:{state:'play', round:pvp.round, wins:pvp.wins}});
     }
   } else if(pvp.state==='play'){
     pvpUpdatePlayerPvp(dt);
-    pvpUpdateOpp(dt);
+    pvpUpdateOthers(dt);
     pvpUpdateBullets(dt);
     pvpUpdatePowerups(dt);
     pvpBroadcastStateThrottled();
@@ -1807,10 +1958,12 @@ function pvpUpdate(dt){
     if(pvp.host){
       pvp.roundOverTimer -= dt;
       if(pvp.roundOverTimer<=0){
-        if(pvp.score[0]>=PVP_WIN || pvp.score[1]>=PVP_WIN){
+        const reached = pvp.mode.teams
+          ? ((pvp.wins[0]||0) >= pvp.mode.win || (pvp.wins[1]||0) >= pvp.mode.win)
+          : pvp.wins.some(w => w >= pvp.mode.win);
+        if(reached){
           pvp.state='matchover';
-          pvp.winner = pvp.score[0]>pvp.score[1] ? myUid : pvp.oppId;
-          pvpSend({event:'round', payload:{state:'matchover', round:pvp.round, score:pvp.score, winner:pvp.winner}});
+          pvpSend({event:'round', payload:{state:'matchover', round:pvp.round, wins:pvp.wins, winner:pvp.winner}});
           pvpSyncUI();
         } else {
           pvpStartRound();
@@ -1828,7 +1981,7 @@ function pvpUpdate(dt){
 function drawBulletsPvp(){
   for(const b of pvp.bullets){
     ctx.save(); ctx.translate(b.x,b.y); ctx.rotate(b.angle);
-    ctx.fillStyle = b.owner==='me' ? '#a7f3d0' : '#fca5a5';
+    ctx.fillStyle = b.owner===myUid ? '#a7f3d0' : '#fca5a5';
     ctx.fillRect(-5,-2,10,4);
     ctx.fillStyle='#fff'; ctx.fillRect(0,-1,4,2);
     ctx.restore();
@@ -1848,44 +2001,67 @@ function drawPowerupsPvp(){
     ctx.restore();
   }
 }
-function pvpDrawName(t, name, color){
+function pvpDrawTank(t, isMe){
+  drawTank(t, false);
+  if(isMe && t.invincible>0){
+    ctx.save(); ctx.strokeStyle='rgba(56,189,248,0.9)'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(t.x,t.y,t.size/2+6,0,TAU); ctx.stroke(); ctx.restore();
+  }
+  if(isMe && t.shield>0){
+    ctx.save(); ctx.strokeStyle='rgba(56,189,248,0.75)'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(t.x,t.y,t.size/2+7,0,TAU); ctx.stroke(); ctx.restore();
+  }
+}
+function pvpDrawName(t, name, color, isMe){
   if(!t || !t.alive) return;
   ctx.save();
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.font='bold 13px "Microsoft YaHei",sans-serif';
+  ctx.font='bold 12px "Microsoft YaHei",sans-serif';
+  const label = isMe ? name + '（你）' : name;
   const y = t.y - t.size/2 - 22;
-  const w = ctx.measureText(name).width + 16;
+  const w = ctx.measureText(label).width + 14;
   ctx.fillStyle='rgba(9,12,18,0.62)';
-  roundRect(t.x - w/2, y - 10, w, 20, 6); ctx.fill();
+  roundRect(t.x - w/2, y - 9, w, 18, 6); ctx.fill();
   ctx.fillStyle=color;
-  ctx.fillText(name, t.x, y + 1);
+  ctx.fillText(label, t.x, y);
   ctx.restore();
 }
 function pvpDrawHud(){
   ctx.textAlign='center'; ctx.textBaseline='middle';
-  // 顶部记分板
+  const barH = 34;
   ctx.fillStyle='rgba(9,12,18,0.6)';
-  ctx.fillRect(0,0,W,34);
-  ctx.font='bold 15px "Microsoft YaHei",sans-serif';
-  const meName=(currentName||'我').slice(0,8);
-  const oppName=(pvp.oppName||'对手').slice(0,8);
-  ctx.fillStyle='#4ade80'; ctx.fillText(meName,130,18);
-  ctx.fillStyle='#e6edf3'; ctx.fillText(pvp.score[0]+' : '+pvp.score[1],W/2,18);
-  ctx.fillStyle='#f87171'; ctx.fillText(oppName,W-130,18);
-  // 双方头顶昵称（互显玩家昵称）
-  pvpDrawName(pvp.me, meName, '#4ade80');
-  pvpDrawName(pvp.opp, oppName, '#f87171');
-  // 中央状态
+  ctx.fillRect(0,0,W,barH);
+  ctx.font='bold 14px "Microsoft YaHei",sans-serif';
+  if(pvp.mode){
+    if(pvp.mode.teams){
+      const t0 = pvp.roster.filter(r=>r.team===0).map(r=>r.name).join('+') || '红队';
+      const t1 = pvp.roster.filter(r=>r.team===1).map(r=>r.name).join('+') || '蓝队';
+      ctx.fillStyle='#f87171'; ctx.fillText(t0.slice(0,10), W*0.28, barH/2);
+      ctx.fillStyle='#e6edf3'; ctx.fillText((pvp.wins[0]||0)+' : '+(pvp.wins[1]||0), W/2, barH/2);
+      ctx.fillStyle='#60a5fa'; ctx.fillText(t1.slice(0,10), W*0.72, barH/2);
+    } else {
+      const parts = pvp.roster.map(r => (r.name||'?').slice(0,6) + ' ' + (pvp.wins[r.slot]||0));
+      ctx.fillStyle='#e6edf3';
+      ctx.fillText(pvp.mode.key + '　' + parts.join('　'), W/2, barH/2);
+    }
+  }
+  for(const t of pvp.players){
+    if(t && t.alive) pvpDrawName(t, (t.name||'?').slice(0,8), t.color, t.id===myUid);
+  }
   if(pvp.state==='countdown'){
     const n=Math.ceil(pvp.countdown);
     ctx.font='bold 72px "Microsoft YaHei",sans-serif';
     ctx.fillStyle='#fff';
     ctx.fillText(n>0?String(n):'GO!', W/2, H/2);
   } else if(pvp.state==='roundover'){
-    const win=pvp.winner===myUid;
+    const win = pvp.mode && pvp.mode.teams ? (pvp.winner===pvp.myTeam) : (pvp.winner===pvp.mySlot);
     ctx.font='bold 42px "Microsoft YaHei",sans-serif';
     ctx.fillStyle= win?'#4ade80':'#f87171';
     ctx.fillText(win?'本局胜利！':'本局失利', W/2, H/2);
+  } else if(pvp.state==='play' && pvp.me && !pvp.me.alive){
+    ctx.font='bold 30px "Microsoft YaHei",sans-serif';
+    ctx.fillStyle='#f87171';
+    ctx.fillText('你阵亡了，观战中…', W/2, H/2 - 60);
   }
 }
 function pvpRender(){
@@ -1893,8 +2069,9 @@ function pvpRender(){
   if(shake>0){ ctx.translate((Math.random()-0.5)*shake*16, (Math.random()-0.5)*shake*16); }
   drawFloor();
   drawPowerupsPvp();
-  if(pvp.me && pvp.me.alive) drawTank(pvp.me, true);
-  if(pvp.opp && pvp.opp.alive) drawTank(pvp.opp, false);
+  for(const t of pvp.players){
+    if(t && t.alive) pvpDrawTank(t, t.id===myUid);
+  }
   drawBulletsPvp();
   drawGrassOverlay();
   drawParticles();
@@ -1903,7 +2080,8 @@ function pvpRender(){
   pvpDrawHud();
 }
 function pvpUpdateHUD(){
-  hudScore.textContent = pvp.score[0];
+  const myWin = pvp.mode && pvp.mode.teams ? (pvp.wins[pvp.myTeam]||0) : (pvp.wins[pvp.mySlot]||0);
+  hudScore.textContent = myWin;
   hudKills.textContent = pvp.me ? pvp.me.hp : 0;
   hudWave.textContent = pvp.round || '—';
   hudLives.textContent = (pvp.me && pvp.me.hp>0) ? '❤'.repeat(pvp.me.hp) : '—';
@@ -1915,8 +2093,24 @@ function pvpUpdateHUD(){
   powBox.innerHTML = html;
 }
 
+/* ---- 模式选择 ---- */
+function pvpSyncModeUI(){
+  if(!pvpModeGroup) return;
+  const btns = pvpModeGroup.querySelectorAll('.pvp-mode-btn');
+  btns.forEach(b => b.classList.toggle('active', b.getAttribute('data-mode') === pvp.mode.key));
+  if(pvpSubtitle) pvpSubtitle.textContent = '模式：' + pvp.mode.key + '（' + pvp.mode.players + '人' + (pvp.mode.teams?' · 2v2 组队':' · 各自为战') + '，先赢 ' + pvp.mode.win + ' 局）';
+}
+
 /* ---- 按钮绑定 ---- */
 pvpBtn.addEventListener('click', pvpOpenLobby);
+if(pvpModeGroup){
+  pvpModeGroup.addEventListener('click', (e)=>{
+    const b = e.target.closest('.pvp-mode-btn');
+    if(!b) return;
+    const key = b.getAttribute('data-mode');
+    if(PVP_MODES[key]){ pvp.mode = PVP_MODES[key]; pvpSyncModeUI(); if(!pvp.code) setPvpMap(pvp.mode); }
+  });
+}
 pvpCreateBtn.addEventListener('click', pvpCreateRoom);
 pvpJoinBtn.addEventListener('click', pvpJoinRoom);
 pvpBackBtn.addEventListener('click', pvpExit);
