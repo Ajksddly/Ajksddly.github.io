@@ -1462,7 +1462,7 @@ const pvp = {
   roster:[], players:[], me:null,
   state:'waiting', round:0, wins:[], countdown:0, roundOverTimer:0,
   powerupTimer:6, lastStateSend:0, seq:0, lastHitter:null, mapVariant:0,
-  bullets:[], powerups:[], winner:null
+  bullets:[], powerups:[], winner:null, announce:null
 };
 
 /* ---- 地图 / 出生点 ---- */
@@ -1623,7 +1623,7 @@ function onDead(p){
 function onRound(p){
   if(p.state==='countdown'){ pvp.state='countdown'; pvp.round=p.round; pvp.wins=p.wins; pvp.countdown=3; pvp.mapVariant=(p.mapVariant!==undefined?p.mapVariant:0); setPvpMap(pvp.mode, pvp.mapVariant); pvpResetRound(); pvpSyncUI(); }
   else if(p.state==='play'){ pvp.state='play'; if(pvp.me) pvp.me.invincible=1.4; }
-  else if(p.state==='roundover'){ pvp.state='roundover'; pvp.wins=p.wins; pvp.winner=p.winner; pvp.roundOverTimer=2.6; pvp.bullets=[]; }
+  else if(p.state==='roundover'){ pvp.state='roundover'; pvp.wins=p.wins; pvp.winner=p.winner; pvp.roundOverTimer=2.6; pvp.bullets=[]; pvpCheckMatchPoint(); }
   else if(p.state==='matchover'){ pvp.state='matchover'; pvp.wins=p.wins; pvp.winner=p.winner; pvpSyncUI(); }
   else if(p.state==='abort'){ pvp.state='waiting'; pvp.wins=[]; pvp.bullets=[]; pvp.powerups=[]; pvpResetRound(); pvpSyncUI(); }
 }
@@ -1746,7 +1746,7 @@ function pvpResetState(){
   pvp.roster=[]; pvp.players=[]; pvp.me=null; pvp.mySlot=-1; pvp.myTeam=-1;
   pvp.state='waiting'; pvp.round=0; pvp.wins=[]; pvp.winner=null; pvp.lastHitter=null;
   pvp.countdown=0; pvp.roundOverTimer=0;
-  pvp.bullets=[]; pvp.powerups=[]; pvp.channel=null;
+  pvp.bullets=[]; pvp.powerups=[]; pvp.channel=null; pvp.announce=null;
 }
 function pvpOpenLobby(){
   captureName();
@@ -1822,6 +1822,20 @@ function pvpEndRound(winnerKey){
   pvp.roundOverTimer=2.6;
   pvp.bullets=[];
   pvpSend({event:'round', payload:{state:'roundover', round:pvp.round, wins:pvp.wins, winner:winnerKey}});
+}
+function pvpCheckMatchPoint(){
+  if(!pvp.mode) return;
+  const names = [];
+  if(pvp.mode.teams){
+    for(let t=0; t<2; t++){
+      if((pvp.wins[t]||0) === pvp.mode.win - 1) names.push(t===0 ? '红队' : '蓝队');
+    }
+  } else {
+    for(const r of pvp.roster){
+      if((pvp.wins[r.slot]||0) === pvp.mode.win - 1) names.push(r.name || ('玩家' + (r.slot+1)));
+    }
+  }
+  if(names.length > 0) pvp.announce = { text: '🔥 赛点 · ' + names.join('、'), timer: 3.2 };
 }
 
 /* ---- 输入 / 移动 / 射击 ---- */
@@ -2000,6 +2014,7 @@ function pvpUpdatePowerups(dt){
 function pvpUpdate(dt){
   if(mode!=='pvp') return;
   shake = Math.max(0, shake - dt*2.5);
+  if(pvp.announce && pvp.announce.timer > 0) pvp.announce.timer -= dt;
   if(pvp.me){
     pvp.me.cooldown-=dt; pvp.me.muzzle-=dt;
     pvp.me.shield=Math.max(0,pvp.me.shield-dt);
@@ -2114,6 +2129,17 @@ function pvpDrawHud(){
   }
   for(const t of pvp.players){
     if(t && t.alive) pvpDrawName(t, (t.name||'?').slice(0,8), t.color, t.id===myUid);
+  }
+  if(pvp.announce && pvp.announce.timer > 0){
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, pvp.announce.timer));
+    ctx.font='bold 30px "Microsoft YaHei",sans-serif';
+    const tw = ctx.measureText(pvp.announce.text).width;
+    ctx.fillStyle='rgba(9,12,18,0.78)';
+    roundRect(W/2 - tw/2 - 22, 42, tw + 44, 46, 10); ctx.fill();
+    ctx.fillStyle='#fbbf24';
+    ctx.fillText(pvp.announce.text, W/2, 66);
+    ctx.restore();
   }
   if(pvp.state==='countdown'){
     const n=Math.ceil(pvp.countdown);
