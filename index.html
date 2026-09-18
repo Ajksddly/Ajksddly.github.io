@@ -1940,6 +1940,28 @@ function pvpMoveTank(t,dx,dy){
   if(!hitsWall(t.x,ny,t.size) && !pvpHitsOther(t.x,ny,t.size,t)) t.y=ny;
   return Math.abs(t.x-ox)>0.001 || Math.abs(t.y-oy)>0.001;
 }
+function pvpSeparateTanks(){
+  // 重叠时把双方坦克推开，避免卡死
+  const me = pvp.me;
+  if(!me || !me.alive) return;
+  for(const t of pvp.players){
+    if(!t || t===me || !t.alive) continue;
+    const dx = me.x - t.x, dy = me.y - t.y;
+    const d = Math.hypot(dx, dy);
+    const minDist = me.size/2 + t.size/2;
+    if(d < minDist){
+      if(d < 0.01){
+        const a = Math.random()*TAU;
+        me.x += Math.cos(a)*minDist;
+        me.y += Math.sin(a)*minDist;
+      } else {
+        const push = (minDist - d)*0.55 + 0.5;
+        me.x += (dx/d)*push;
+        me.y += (dy/d)*push;
+      }
+    }
+  }
+}
 function pvpFire(){
   const me=pvp.me;
   if(!me || !me.alive) return;
@@ -1969,6 +1991,7 @@ function pvpUpdatePlayerPvp(dt){
     const m = Math.hypot(dx,dy);
     pvpMoveTank(me, dx/m*me.speed*(me.speedBoost>0?1.6:1)*dt, dy/m*me.speed*(me.speedBoost>0?1.6:1)*dt);
   }
+  pvpSeparateTanks();
   const target = pvpNearestEnemy();
   const aimMouse = (performance.now() - lastMouseMove) <= 2000;
   if(fireHeld && target){ me.angle = Math.atan2(target.y - me.y, target.x - me.x); }
