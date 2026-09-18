@@ -1557,7 +1557,7 @@ function pvpBroadcastState(){
   pvpSend({event:'state', payload:{ id:myUid, x:pvp.me.x, y:pvp.me.y, angle:pvp.me.angle, hp:pvp.me.hp }});
 }
 function pvpBroadcastStateThrottled(){
-  if(performance.now() - pvp.lastStateSend < 66) return;
+  if(performance.now() - pvp.lastStateSend < 50) return;
   pvp.lastStateSend = performance.now();
   pvpBroadcastState();
 }
@@ -1578,10 +1578,12 @@ function onHello(p){
 }
 function onRoster(p){
   if(pvp.host) return;           // 房主自己维护 roster，不收自己的广播
-  pvp.mode = p.mode && PVP_MODES[p.mode.key] ? p.mode : PVP_MODES['1v1'];
-  setPvpMap(pvp.mode);
+  const newMode = p.mode && PVP_MODES[p.mode.key] ? p.mode : PVP_MODES['1v1'];
+  if(!pvp.mode || pvp.mode.key !== newMode.key){ pvp.mode = newMode; setPvpMap(pvp.mode); }
+  else { pvp.mode = newMode; }
   pvpRebuildRoster(p.players);
-  pvpResetRound();
+  // 仅在玩家还没有位置时重置（首次加入）；重连时不重置对局
+  if(pvp.players.some(t => t && t.x === undefined)) pvpResetRound();
   if(pvp.me && pvp.state==='waiting'){
     pvpSend({event:'ready', payload:{ id:myUid, name:currentName }});
   }
@@ -1596,7 +1598,24 @@ function onState(p){
   if(p.id===myUid) return;
   const t = pvp.players.find(x => x && x.id === p.id);
   if(!t) return;
-  t.tx=p.x; t.ty=p.y; t.tAngle=p.angle; t.hp=p.hp;
+  // 计算速度（用于外推补偿）
+  const now = performance.now();
+  if(t.lastStateTime && t.tx !== undefined){
+    const d = (now - t.lastStateTime)/1000;
+    if(d > 0 && d < 1){
+      let vx = (p.x - t.tx)/d, vy = (p.y - t.ty)/d;
+      const sp = Math.hypot(vx, vy);
+      if(sp > 500){ vx *= 500/sp; vy *= 500/sp; }
+      t.vx = vx; t.vy = vy;
+    }
+  }
+  t.tx=p.x; t.ty=p.y; t.tAngle=p.angle; t.hp=p.hp; t.lastStateTime=now;
+  // 兜底：血量归零但没收到 dead 消息时，也判定阵亡
+  if(p.hp <= 0 && t.alive){
+    t.alive = false;
+    spawnExplosion(t.x, t.y, t.color, 26);
+    if(pvp.host && pvp.state==='play') pvpCheckRoundEnd();
+  }
 }
 function onFire(p){
   if(p.owner===myUid) return;
@@ -1605,24 +1624,25 @@ function onFire(p){
 }
 function onDead(p){
   const victim = pvp.players.find(t => t && t.id === p.id);
-  if(victim){ victim.alive = false; spawnExplosion(victim.x, victim.y, victim.color, 26); }
-  if(pvp.host && pvp.state==='play'){
-    const alive = pvp.players.filter(t => t && t.alive);
-    if(pvp.mode.teams){
-      const teams = {};
-      for(const t of alive) teams[t.team] = true;
-      const ks = Object.keys(teams);
-      if(ks.length === 1){
-        const wt = parseInt(ks[0], 10);
-        pvp.wins[wt] = (pvp.wins[wt]||0) + 1;
-        pvpEndRound(wt);
-      }
-    } else {
-      if(alive.length === 1){
-        const ws = alive[0].slot;
-        pvp.wins[ws] = (pvp.wins[ws]||0) + 1;
-        pvpEndRound(ws);
-      }
+  if(victim && victim.alive){ victim.alive = false; spawnExplosion(victim.x, victim.y, victim.color, 26); }
+  if(pvp.host && pvp.state==='play') pvpCheckRoundEnd();
+}
+function pvpCheckRoundEnd(){
+  const alive = pvp.players.filter(t => t && t.alive);
+  if(pvp.mode.teams){
+    const teams = {};
+    for(const t of alive) teams[t.team] = true;
+    const ks = Object.keys(teams);
+    if(ks.length === 1){
+      const wt = parseInt(ks[0], 10);
+      pvp.wins[wt] = (pvp.wins[wt]||0) + 1;
+      pvpEndRound(wt);
+    }
+  } else {
+    if(alive.length === 1){
+      const ws = alive[0].slot;
+      pvp.wins[ws] = (pvp.wins[ws]||0) + 1;
+      pvpEndRound(ws);
     }
   }
 }
@@ -1728,9 +1748,12 @@ async function pvpSetupChannel(){
     if(status==='SUBSCRIBED'){
       pvp.joined=true;
       if(pvp.host){
-        pvp.roster = [{ id:myUid, name:currentName, slot:0, team:0 }];
-        pvpRebuildRoster(pvp.roster);
-        pvpResetRound();
+        // 首次连接才初始化；重连时保留现有名单与对局状态
+        if(!pvp.roster || pvp.roster.length === 0){
+          pvp.roster = [{ id:myUid, name:currentName, slot:0, team:0 }];
+          pvpRebuildRoster(pvp.roster);
+          pvpResetRound();
+        }
         pvpBroadcastRoster();
       } else {
         pvpSend({event:'hello', payload:{ id:myUid, name:currentName }});
@@ -1915,12 +1938,22 @@ function lerpAngle(a,b,t){
   return a + d * t;
 }
 function pvpUpdateOthers(dt){
+  const now = performance.now();
   for(const t of pvp.players){
     if(!t || t.id===myUid || !t.alive) continue;
-    const k = Math.min(1, dt*14);
+    const k = Math.min(1, dt*16);
     t.x += (t.tx - t.x)*k;
     t.y += (t.ty - t.y)*k;
     t.angle = lerpAngle(t.angle, t.tAngle, k);
+    // 外推：目标长时间未更新时用速度预测，补偿网络延迟
+    if(t.vx !== undefined && t.lastStateTime){
+      const age = now - t.lastStateTime;
+      if(age > 80){
+        const f = Math.min(0.12, (age - 80)/2000);
+        t.tx += t.vx * f;
+        t.ty += t.vy * f;
+      }
+    }
   }
 }
 function pvpUpdateBullets(dt){
